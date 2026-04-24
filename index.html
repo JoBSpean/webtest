@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>🎉 Привет! Отправь сообщение</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='75' font-size='75'>👋</text></svg>">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+      overflow-x: hidden;
+    }
+
+    .stars {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .star {
+      position: absolute;
+      width: 2px;
+      height: 2px;
+      background: white;
+      border-radius: 50%;
+      opacity: 0.6;
+      animation: twinkle 3s infinite;
+    }
+
+    @keyframes twinkle {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+
+    .container {
+      width: 100%;
+      max-width: 520px;
+      background: white;
+      border-radius: 40px;
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.3);
+      padding: 45px 30px;
+      animation: slideUp 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+      position: relative;
+      z-index: 10;
+    }
+
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(40px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 45px;
+    }
+
+    .emoji-main {
+      font-size: 80px;
+      display: block;
+      margin-bottom: 20px;
+      animation: float 3s ease-in-out infinite;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-15px); }
+    }
+
+    h1 {
+      font-size: 32px;
+      color: #2d3748;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: #718096;
+      font-size: 15px;
+      margin-bottom: 10px;
+      line-height: 1.4;
+    }
+
+    .status {
+      text-align: center;
+      padding: 14px 16px;
+      border-radius: 12px;
+      margin-bottom: 25px;
+      font-size: 14px;
+      min-height: 22px;
+      display: none;
+      font-weight: 600;
+      animation: statusPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes statusPop {
+      from {
+        opacity: 0;
+        transform: scale(0.9);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    .status.show {
+      display: block;
+    }
+
+    .status.success {
+      background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
+      color: #1e3a1f;
+      border: 1px solid #5cd65c;
+    }
+
+    .status.error {
+      background: linear-gradient(135deg, #fa9999 0%, #f5ad56 100%);
+      color: #4a0e0e;
+      border: 1px solid #ff6b6b;
+    }
+
+    .status.loading {
+      background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+      color: #0d3b66;
+      border: 1px solid #74b9ff;
+    }
+
+    .button-group {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-bottom: 35px;
+    }
+
+    button {
+      padding: 18px 24px;
+      border: none;
+      border-radius: 16px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    button::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 0;
+      height: 0;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      transform: translate(-50%, -50%);
+      transition: width 0.6s, height 0.6s;
+    }
+
+    button:active::before {
+      width: 300px;
+      height: 300px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      box-shadow: 0 15px 35px rgba(102, 126, 234, 0.4);
+      font-size: 17px;
+      font-weight: 800;
+    }
+
+    .btn-primary:active {
+      transform: translateY(2px);
+      box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: translateY(0);
+    }
+
+    .btn-secondary {
+      background: #f7fafc;
+      color: #2d3748;
+      border: 2px solid #e2e8f0;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .btn-secondary:active {
+      background: #edf2f7;
+      transform: translateY(2px);
+    }
+
+    .divider {
+      width: 70px;
+      height: 4px;
+      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      margin: 35px auto;
+      border-radius: 2px;
+    }
+
+    .messages-section h2 {
+      font-size: 18px;
+      color: #2d3748;
+      margin-bottom: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .counter {
+      text-align: center;
+      color: #667eea;
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .messages-list {
+      background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+      border-radius: 16px;
+      padding: 16px;
+      max-height: 280px;
+      overflow-y: auto;
+      margin-bottom: 16px;
+      border: 2px solid #e2e8f0;
+    }
+
+    .message-item {
+      background: white;
+      padding: 14px;
+      margin-bottom: 10px;
+      border-radius: 12px;
+      border-left: 5px solid #667eea;
+      font-size: 13px;
+      color: #4a5568;
+      animation: slideInLeft 0.4s ease-out;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+      word-break: break-word;
+    }
+
+    @keyframes slideInLeft {
+      from {
+        opacity: 0;
+        transform: translateX(-15px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    .message-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .empty-message {
+      text-align: center;
+      color: #a0aec0;
+      font-size: 13px;
+      padding: 30px 20px;
+      font-style: italic;
+    }
+
+    .messages-list::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .messages-list::-webkit-scrollbar-track {
+      background: #e2e8f0;
+      border-radius: 10px;
+    }
+
+    .messages-list::-webkit-scrollbar-thumb {
+      background: #667eea;
+      border-radius: 10px;
+      opacity: 0.7;
+    }
+
+    .messages-list::-webkit-scrollbar-thumb:hover {
+      background: #764ba2;
+      opacity: 1;
+    }
+
+    .footer {
+      text-align: center;
+      font-size: 12px;
+      color: #a0aec0;
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid #e2e8f0;
+    }
+
+    @media (max-width: 480px) {
+      .container {
+        padding: 35px 24px;
+      }
+
+      h1 {
+        font-size: 28px;
+      }
+
+      .emoji-main {
+        font-size: 70px;
+      }
+
+      button {
+        padding: 16px 20px;
+        font-size: 15px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="stars" id="stars"></div>
+
+  <div class="container">
+    <div class="header">
+      <span class="emoji-main">👋</span>
+      <h1>Привет!</h1>
+      <p class="subtitle">Нажми кнопку и отправь приветствие</p>
+    </div>
+
+    <div id="status" class="status"></div>
+
+    <div class="button-group">
+      <button class="btn-primary" id="sendBtn">🎉 Отправить Привет</button>
+      <button class="btn-secondary" id="refreshBtn">🔄 Обновить</button>
+      <button class="btn-secondary" id="clearBtn">🗑️ Очистить</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="messages-section">
+      <h2>💬 Сообщения</h2>
+      <div class="counter" id="counter">Загрузка...</div>
+      <div class="messages-list" id="messagesList">
+        <div class="empty-message">Сообщений ещё нет...</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      ✨ На Replit ✨
+    </div>
+  </div>
+
+  <script>
+    // Создаем звездное небо
+    function createStars() {
+      const starsContainer = document.getElementById('stars');
+      for (let i = 0; i < 30; i++) {
+        const star = document.createElement('div');
+        star.className = 'star';
+        star.style.left = Math.random() * 100 + '%';
+        star.style.top = Math.random() * 100 + '%';
+        star.style.animationDelay = Math.random() * 3 + 's';
+        starsContainer.appendChild(star);
+      }
+    }
+    createStars();
+
+    const sendBtn = document.getElementById('sendBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const statusDiv = document.getElementById('status');
+    const messagesList = document.getElementById('messagesList');
+    const counter = document.getElementById('counter');
+
+    function showStatus(message, type) {
+      statusDiv.textContent = message;
+      statusDiv.className = `status show ${type}`;
+      if (type === 'success' || type === 'error') {
+        setTimeout(() => statusDiv.classList.remove('show'), 4000);
+      }
+    }
+
+    function disableButtons(disabled) {
+      sendBtn.disabled = disabled;
+      refreshBtn.disabled = disabled;
+      clearBtn.disabled = disabled;
+    }
+
+    async function sendMessage() {
+      disableButtons(true);
+      showStatus('⏳ Отправляю привет...', 'loading');
+
+      try {
+        const response = await fetch('/api/send-message', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: '👋 Привет!'
+          })
+        });
+
+        if (!response.ok) throw new Error('Ошибка отправки');
+
+        const data = await response.json();
+        showStatus(`✅ ${data.message}`, 'success');
+        
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await loadMessages();
+      } catch (error) {
+        showStatus('❌ Ошибка: ' + error.message, 'error');
+      } finally {
+        disableButtons(false);
+      }
+    }
+
+    async function loadMessages() {
+      try {
+        const response = await fetch('/api/messages');
+        const data = await response.json();
+        
+        if (data.messages.length === 0) {
+          messagesList.innerHTML = '<div class="empty-message">Сообщений ещё нет...<br>Отправь первое! 👇</div>';
+          counter.textContent = 'Всего: 0 сообщений';
+        } else {
+          messagesList.innerHTML = data.messages
+            .map((msg, idx) => `<div class="message-item">${msg}</div>`)
+            .join('');
+          counter.textContent = `Всего: ${data.messages.length} сообщений`;
+        }
+      } catch (error) {
+        messagesList.innerHTML = '<div class="empty-message">⚠️ Ошибка загрузки</div>';
+      }
+    }
+
+    async function clearMessages() {
+      if (!confirm('⚠️ Удалить все сообщения?')) return;
+
+      disableButtons(true);
+      try {
+        const response = await fetch('/api/clear-messages', {
+          method: 'POST'
+        });
+
+        if (response.ok) {
+          showStatus('🗑️ Сообщения удалены', 'success');
+          await loadMessages();
+        }
+      } catch (error) {
+        showStatus('❌ Ошибка при удалении', 'error');
+      } finally {
+        disableButtons(false);
+      }
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+    refreshBtn.addEventListener('click', loadMessages);
+    clearBtn.addEventListener('click', clearMessages);
+
+    // Загрузка при старте
+    loadMessages();
+
+    // Auto-refresh каждые 5 секунд
+    setInterval(loadMessages, 5000);
+  </script>
+</body>
+</html>

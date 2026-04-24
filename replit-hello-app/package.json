@@ -1,0 +1,17 @@
+{
+  "name": "hello-app-replit",
+  "version": "1.0.0",
+  "description": "Приложение для отправки приветствий на Replit",
+  "main": "replit_server.js",
+  "scripts": {
+    "start": "node replit_server.js",
+    "dev": "node replit_server.js"
+  },
+  "keywords": ["hello", "replit", "app"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  }
+}
