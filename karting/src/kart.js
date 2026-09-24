@@ -1,9 +1,9 @@
-// Карт: модель, аркадная физика, визуальные эффекты.
+// Карт: модель, связка с физикой, визуальные эффекты.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { kartParams } from './config.js';
-import { clamp, damp, dampAngle, wrapAngle } from './util.js';
+import { clamp, damp, wrapAngle } from './util.js';
 import { numberTexture } from './textures.js';
+import { newKartState, stepDynamics, collide, placeKart, placeInPit, SURF } from './physics.js';
 
 // ---------- общие геометрии ----------
 let G = null;
@@ -177,19 +177,17 @@ export function buildKartMesh(driver, { ghost = false, night = false, shadows = 
   return root;
 }
 
-// ---------- физика ----------
-const BOOST_LEVELS = [0, 0.6, 1.1, 1.7];
-export const DRIFT_COLORS = [[1, 1, 1], [0.35, 0.7, 1], [1, 0.55, 0.12], [0.8, 0.35, 1]];
+
 
 export class Kart {
-  constructor(race, driver, { isPlayer = false, index = 0 } = {}) {
+  constructor(race, driver, { isPlayer = false, index = 0, cls }) {
+    Object.assign(this, newKartState(cls));
     this.race = race;
     this.geom = race.geom;
     this.driver = driver;
     this.name = driver.name;
     this.isPlayer = isPlayer;
     this.index = index;
-    this.p = kartParams(driver.stats);
     this.mesh = buildKartMesh(driver, { night: race.theme.night, shadows: race.quality !== 'low' });
     this.ud = this.mesh.userData;
     if (race.quality === 'low') {
@@ -198,55 +196,34 @@ export class Kart {
       blob.renderOrder = 1;
       this.mesh.add(blob);
     }
-
-    this.x = 0; this.y = 0; this.z = 0; this.h = 0;
-    this.vx = 0; this.vz = 0;
-    this.vf = 0; this.vl = 0; this.speed = 0;
-    this.steer = 0; this.throttleVis = 0;
-    this.drifting = false; this.driftDir = 0; this.driftCharge = 0; this.driftLevel = 0;
-    this.driftArmed = false; this.hopT = 0; this.hopH = 0.22;
-    this.boostT = 0; this.boostPow = 0;
-    this.spinT = 0; this.spinAng = 0; this.spinRate = 0;
-    this.shieldT = 0;
-    this.stallT = 0;
     this.item = null; this.itemCount = 0; this.rouletteT = 0; this.rouletteItem = null;
+    this.shieldT = 0; this.padCooldown = 0;
     this.speedScale = 1;
-    this.proj = {};
-    this.trackIdx = -1;
-    this.s = 0; this.d = 0; this.lastS = 0;
-    this.onGrass = false;
-    this.progress = 0; this.lapsDone = 0; this.lapStart = 0; this.lapTimes = []; this.bestLap = Infinity;
+    this.lapsDone = 0; this.lapStart = 0; this.lapTimes = []; this.bestLap = Infinity;
     this.finished = false; this.finishTime = 0; this.rank = 0;
+    this.sector = 0; this.secStart = 0; this.curSectors = [null, null, null];
     this.wrongT = 0;
-    this.pitch = 0; this.roll = 0; this.visYaw = 0;
-    this.wheelRot = 0;
+    this.pitch = 0; this.roll = 0; this.wheelRot = 0; this.visLift = 0;
     this.skidPrev = [null, null];
-    this.lastWallHit = 0;
-    this.airY = 0; this.airV = 0;
-    this.lapTrace = [];
+    this.lastWallHit = -1;
+    this.airY = 0;
   }
 
-  place(s, d) {
-    const pt = this.geom.pointAt(s, d);
-    this.x = pt.x; this.z = pt.z; this.y = pt.y;
-    this.h = this.geom.headingAt(s);
-    this.vx = this.vz = 0;
-    const pr = this.geom.project(this.x, this.z, -1, null, this.proj);
-    this.trackIdx = pr.idx; this.s = pr.s; this.d = pr.d; this.lastS = pr.s;
-    this.progress = this.geom.deltaS(pr.s, 0);
-    this.syncMesh(0);
-  }
+  get speed() { return Math.abs(this.u); }
 
+  place(s, d) { placeKart(this, this.geom, s, d); this.skidPrev = [null, null]; this.syncMesh(0); }
+  placePit(frac) { placeInPit(this, this.geom, frac); this.skidPrev = [null, null]; this.syncMesh(0); }
+
+  // маршалы ставят карт на трассу
   respawn() {
     const s = this.geom.wrapS(this.s);
-    const d = clamp(this.d, -this.geom.half + 2, this.geom.half - 2) * 0.3;
-    const pt = this.geom.pointAt(s, d);
-    this.x = pt.x; this.z = pt.z; this.y = pt.y;
-    this.h = this.geom.headingAt(s);
-    this.vx = this.vz = 0;
-    this.drifting = false; this.spinT = 0; this.spinAng = 0; this.boostT = 0;
+    const d = clamp(this.d, -this.geom.half + 1.5, this.geom.half - 1.5) * 0.3;
+    const prog = this.progress;
+    placeKart(this, this.geom, s, d);
+    this.progress = prog;
+    this.spinT = 0; this.boostT = 0;
     this.skidPrev = [null, null];
-    this.race.fx.burst(this.x, this.y + 0.8, this.z, 0.5, 0.8, 1, 20, 4, 0.3);
+    this.race.fx.burst(this.x, this.y + 0.8, this.z, 0.9, 0.9, 0.9, 16, 3, 0.3);
   }
 
   boost(dur, pow) {
@@ -263,223 +240,61 @@ export class Kart {
       this.race.sound('shieldBreak', this);
       return false;
     }
-    this.drifting = false; this.driftCharge = 0; this.driftLevel = 0;
     this.boostT = 0;
     const heavy = kind === 'rocket';
-    this.spinT = heavy ? 1.5 : 1.15;
-    this.spinRate = (heavy ? 13 : 10) * (Math.random() < 0.5 ? -1 : 1);
-    const k = heavy ? 0.3 : 0.55;
-    this.vx *= k; this.vz *= k;
-    if (heavy) { this.airV = 5.5; }
+    this.spinT = heavy ? 1.4 : 1.0;
+    this.spinDir = Math.random() < 0.5 ? -1 : 1;
+    this.u *= heavy ? 0.35 : 0.6;
     this.race.onKartHit(this, kind, by);
     return true;
   }
 
   step(dt, inp) {
-    const P = this.p;
-    const geom = this.geom;
-    const canDrive = this.race.canDrive && this.spinT <= 0;
-    let throttle = canDrive ? inp.throttle : 0;
-    let brake = canDrive ? inp.brake : 0;
-    const steerIn = canDrive ? inp.steer : 0;
-    if (this.stallT > 0) { this.stallT -= dt; throttle *= 0.15; }
-
-    const fx = Math.sin(this.h), fz = Math.cos(this.h);
-    const rx = -fz, rz = fx;
-    let vf = this.vx * fx + this.vz * fz;
-    let vl = this.vx * rx + this.vz * rz;
-
-    this.steer = damp(this.steer, steerIn, 11, dt);
-    this.throttleVis = damp(this.throttleVis, throttle, 8, dt);
-
-    const boosting = this.boostT > 0;
-    const grass = this.onGrass && !boosting;
-    let vmax = P.maxSpeed * this.speedScale;
-    if (grass) vmax *= P.grassPenalty;
-    if (boosting) vmax *= 1 + 0.3 * this.boostPow;
-
-    // продольная динамика
-    if (boosting) {
-      if (vf < vmax) vf = Math.min(vmax, vf + (P.accel * 1.3 + 16 * this.boostPow) * dt);
-      this.boostT -= dt;
-      if (this.boostT <= 0) this.boostPow = 0;
-    } else if (throttle > 0.01 && vf < vmax) {
-      const k = Math.max(0, vf) / vmax;
-      vf = Math.min(vmax, vf + P.accel * throttle * (1 - 0.8 * k * k) * dt);
+    stepDynamics(this, inp, dt, this.race.physOpts(this));
+    const hit = collide(this, this.geom, dt);
+    if (hit > 1.5 && this.race.time - this.lastWallHit > 0.3) {
+      this.lastWallHit = this.race.time;
+      this.race.onWallHit(this, hit, this.x, this.z);
     }
-    if (vf > vmax) vf = damp(vf, vmax, grass ? 2.4 : 0.9, dt);
-    if (brake > 0.01) {
-      if (vf > 0.3) vf = Math.max(0, vf - 30 * brake * dt);
-      else vf = Math.max(-8, vf - 11 * brake * dt);
-    }
-    if (throttle <= 0.01 && brake <= 0.01 && !boosting) {
-      const dec = (grass ? 9 : 3.2) * dt;
-      vf = Math.abs(vf) < dec ? 0 : vf - Math.sign(vf) * dec;
-    }
-    if (this.spinT > 0) vf = damp(vf, 0, 1.6, dt);
-
-    const sp = Math.abs(vf);
-    const vr = clamp(sp / P.maxSpeed, 0, 1.4);
-
-    // занос
-    if (canDrive && inp.driftPressed && sp > 6 && this.hopT <= 0 && !this.drifting && this.airY <= 0.01) {
-      this.hopT = 0.3; this.driftArmed = true;
-      this.race.sound('hop', this);
-    }
-    if (!inp.drift) this.driftArmed = false;
-    if (this.driftArmed && canDrive && !this.drifting && Math.abs(steerIn) > 0.3 && sp > 8) {
-      this.drifting = true; this.driftDir = Math.sign(steerIn);
-      this.driftCharge = 0; this.driftLevel = 0; this.driftArmed = false;
-    }
-    if (this.drifting) {
-      const stop = !inp.drift || sp < 6 || !canDrive || (grass && sp < 9);
-      if (stop) {
-        if (this.driftLevel > 0 && inp.drift === false && canDrive) {
-          this.boost(BOOST_LEVELS[this.driftLevel], 0.55 + this.driftLevel * 0.15);
-          this.race.sound('miniturbo', this, this.driftLevel);
-        }
-        this.drifting = false; this.driftCharge = 0; this.driftLevel = 0;
-      } else {
-        const tight = clamp(this.steer * this.driftDir, -1, 1);
-        this.driftCharge += dt * P.driftCharge * (0.65 + 0.55 * Math.max(0, tight)) * (grass ? 0.3 : 1);
-        const lvl = this.driftCharge > 3.0 ? 3 : this.driftCharge > 1.9 ? 2 : this.driftCharge > 0.9 ? 1 : 0;
-        if (lvl > this.driftLevel) {
-          this.driftLevel = lvl;
-          this.race.sound('driftLevel', this, lvl);
-          const c = DRIFT_COLORS[lvl];
-          this.race.fx.burst(this.x - fx * 0.9, this.y + 0.3, this.z - fz * 0.9, c[0], c[1], c[2], 14, 4, 0.25);
-        }
-      }
-    }
-
-    // рыскание
-    const lowK = clamp(sp / 5, 0, 1);
-    let yaw;
-    if (this.drifting) {
-      const tight = clamp(this.steer * this.driftDir, -1, 1);
-      yaw = this.driftDir * P.turnRate * lowK * (0.55 + 0.45 * tight) * (1 - 0.16 * vr * vr);
-    } else {
-      yaw = this.steer * P.turnRate * lowK * (1 - 0.42 * vr * vr);
-      if (vf < 0) yaw = -yaw;
-    }
-    if (grass) yaw *= 0.85;
-    this.h -= yaw * dt;
-
-    // боковое сцепление: гасим снос, сохраняя часть энергии
-    const grip = this.drifting ? 7.5 : grass ? 4.5 : 9;
-    const before = Math.hypot(vf, vl);
-    vl *= Math.exp(-grip * dt);
-    const after = Math.hypot(vf, vl);
-    if (vf > 0) vf += (before - after) * (this.drifting ? 0.85 : 0.55);
-    if (grass && sp > 3) vf -= vf * 0.35 * dt;
-
-    // пересобираем вектор скорости в новом курсе
-    const nfx = Math.sin(this.h), nfz = Math.cos(this.h);
-    const nrx = -nfz, nrz = nfx;
-    this.vx = nfx * vf + nrx * vl;
-    this.vz = nfz * vf + nrz * vl;
-    this.vf = vf; this.vl = vl;
-
-    this.x += this.vx * dt;
-    this.z += this.vz * dt;
-
-    // трасса: отбойники
-    const pr = geom.project(this.x, this.z, this.trackIdx, this.y, this.proj);
-    this.trackIdx = pr.idx;
-    const lim = geom.barrier - 0.9;
-    if (Math.abs(pr.d) > lim) {
-      const sg = Math.sign(pr.d);
-      const pen = Math.abs(pr.d) - lim;
-      this.x -= pr.nx * sg * pen; this.z -= pr.nz * sg * pen;
-      const vn = (this.vx * pr.nx + this.vz * pr.nz) * sg;
-      if (vn > 0) {
-        this.vx -= pr.nx * sg * vn * 1.35;
-        this.vz -= pr.nz * sg * vn * 1.35;
-        const fr = clamp(1 - vn * 0.035, 0.55, 0.985);
-        this.vx *= fr; this.vz *= fr;
-        // разворачиваем вдоль стены, чтобы не застревать
-        const th = pr.head;
-        const along = Math.cos(this.h - th) >= 0 ? th : th + Math.PI;
-        this.h = dampAngle(this.h, along, 2.5 + vn * 0.3, dt);
-        if (vn > 2.5 && this.race.time - this.lastWallHit > 0.25) {
-          this.lastWallHit = this.race.time;
-          this.race.onWallHit(this, vn, this.x + pr.nx * sg * 0.8, this.z + pr.nz * sg * 0.8);
-        }
-        if (vn > 6 && this.drifting) { this.drifting = false; this.driftCharge = 0; this.driftLevel = 0; }
-      }
-    }
-    this.s = pr.s; this.d = pr.d;
-    this.onGrass = Math.abs(pr.d) > geom.half + 0.35;
-    this.trackHead = pr.head;
-    this.slope = pr.slope;
-
-    // высота: дорога + прыжки
-    this.airV -= 22 * dt;
-    this.airY = Math.max(0, this.airY + this.airV * dt);
-    if (this.airY <= 0) this.airV = 0;
-    this.y = pr.y;
-
-    // прогресс и круги
-    const ds = geom.deltaS(pr.s, this.lastS);
-    this.lastS = pr.s;
-    this.progress += ds;
-    this.speed = Math.hypot(this.vx, this.vz);
-
-    // неверное направление
-    const cosDir = Math.cos(this.h - pr.head);
-    if (cosDir < -0.3 && vf > 2) this.wrongT += dt; else this.wrongT = Math.max(0, this.wrongT - dt * 2);
-
-    if (this.spinT > 0) {
-      this.spinT -= dt;
-      this.spinAng += this.spinRate * dt;
-      if (this.spinT <= 0) this.spinRate = 0;
-    }
+    const cosDir = Math.cos(this.h - (this.trackHead ?? this.h));
+    if (cosDir < -0.3 && this.u > 2) this.wrongT += dt; else this.wrongT = Math.max(0, this.wrongT - dt * 2);
     if (this.shieldT > 0) this.shieldT -= dt;
-    if (this.hopT > 0) this.hopT -= dt;
   }
 
-  // визуализация и частицы (раз в кадр)
   syncMesh(dt, time = 0) {
-    const ud = this.ud;
-    const m = this.mesh;
-    const hop = this.hopT > 0 ? Math.sin((1 - this.hopT / 0.3) * Math.PI) * this.hopH : 0;
-    m.position.set(this.x, this.y + hop + this.airY, this.z);
-
-    // визуальный курс: небольшое «перекручивание» в заносе
-    const slipTarget = this.drifting ? this.driftDir * -0.42 : 0;
-    this.visYaw = dt ? damp(this.visYaw, slipTarget, 6, dt) : slipTarget;
-    if (this.spinT <= 0 && this.spinAng !== 0) {
-      const target = Math.round(this.spinAng / (Math.PI * 2)) * Math.PI * 2;
-      this.spinAng = dt ? damp(this.spinAng, target, 10, dt) : target;
-      if (Math.abs(this.spinAng - target) < 0.01) this.spinAng = 0;
-    }
-    m.rotation.set(0, this.h + this.visYaw + this.spinAng, 0);
-
-    // тангаж по уклону, крен от поворота
-    const slopeAlong = (this.slope || 0) * Math.cos(this.h - (this.trackHead || this.h));
-    const pitchT = -Math.atan(slopeAlong) - clamp(this.throttleVis * 0.015 - (this.vf < 0 ? 0 : 0), -0.05, 0.05);
-    const rollT = clamp(this.steer * this.speed * 0.0042 + (this.drifting ? this.driftDir * 0.06 : 0), -0.14, 0.14);
+    const ud = this.ud, m = this.mesh;
+    const vib = this.onKerb && this.u > 5 ? (Math.random() - 0.5) * 0.025 : 0;
+    m.position.set(this.x, this.y + vib, this.z);
+    const spinVis = this.spinT > 0 ? 0 : 0;
+    m.rotation.set(0, this.h + spinVis, 0);
+    // крен от бокового ускорения, клевок при торможении, подскок внутреннего колеса
+    const ay = this.u * this.w;
+    const slopeAlong = (this.slope || 0) * Math.cos(this.h - (this.trackHead ?? this.h));
+    const pitchT = -Math.atan(slopeAlong) + clamp(-this.ax * 0.004, -0.035, 0.035);
+    const rollT = clamp(ay * 0.0045, -0.07, 0.07) + Math.sign(this.w) * this.lift * 0.03;
     this.pitch = dt ? damp(this.pitch, pitchT, 10, dt) : pitchT;
-    this.roll = dt ? damp(this.roll, rollT, 8, dt) : rollT;
+    this.roll = dt ? damp(this.roll, rollT, 9, dt) : rollT;
     ud.body.rotation.set(this.pitch, 0, this.roll, 'YXZ');
-    if (this.airY > 0.01 && this.spinT > 0) ud.body.rotation.x += Math.sin(time * 20) * 0.1;
-
-    // колёса
-    this.wheelRot += (this.vf * dt) / 0.27;
+    ud.body.position.y = this.lift * 0.025;
+    this.wheelRot += (this.u * (dt || 0)) / 0.27;
     for (const w of ud.wheels) {
       w.spin.rotation.x = this.wheelRot * (w.front ? 1.1 : 1);
-      if (w.front) w.pivot.rotation.y = -this.steer * 0.42;
+      if (w.front) w.pivot.rotation.y = this.delta;
     }
-    ud.wheel.rotation.z = this.steer * 1.2;
-    ud.head.rotation.y = -this.steer * 0.25;
-    ud.head.rotation.z = -this.roll * 1.5;
-
-    // турбо
+    // внутреннее заднее колесо отрывается от асфальта
+    const liftSide = this.w > 0 ? 1 : -1; // левый поворот — внутреннее слева (+x)
+    for (const w of ud.wheels) {
+      if (w.front) continue;
+      const inner = Math.sign(w.pivot.position.x) === liftSide;
+      w.pivot.position.y = 0.28 + (inner ? this.lift * 0.05 : 0);
+    }
+    ud.wheel.rotation.z = -this.delta * 2.4;
+    ud.head.rotation.y = this.delta * 0.6;
+    ud.head.rotation.z = -this.roll * 2.2;
     const boosting = this.boostT > 0;
     ud.flame.visible = boosting;
     if (boosting) {
-      const f = 0.8 + Math.random() * 0.5 + this.boostPow * 0.4;
-      ud.flame.scale.set(1, 1, f);
+      ud.flame.scale.set(1, 1, 0.8 + Math.random() * 0.5 + this.boostPow * 0.4);
       ud.flameMat.color.setHSL(0.07 + Math.random() * 0.04, 1, 0.55);
     }
     ud.shield.visible = this.shieldT > 0;
@@ -487,59 +302,33 @@ export class Kart {
       ud.shieldMat.uniforms.time.value = time;
       ud.shieldMat.uniforms.alpha.value = this.shieldT < 1.2 ? (Math.sin(time * 30) > 0 ? 1 : 0.3) : 1;
     }
-
     if (!dt) return;
     this.emitFx(dt);
   }
 
   emitFx(dt) {
     const fx = this.race.fx;
+    if (!this.race.nearCamera(this)) { this.skidPrev = [null, null]; return; }
     const sh = Math.sin(this.h), ch = Math.cos(this.h);
     const rx = -ch, rz = sh;
-    const sp = this.speed;
-    const near = this.race.nearCamera(this);
-
-    // задние колёса в мировых координатах
+    const sp = Math.abs(this.u);
     const rear = [];
-    for (const side of [-1, 1]) {
-      rear.push([this.x - sh * 0.62 + rx * side * 0.64, this.y + 0.05, this.z - ch * 0.62 + rz * side * 0.64]);
+    for (const side of [-1, 1]) rear.push([this.x - sh * 0.62 + rx * side * 0.64, this.y + 0.05, this.z - ch * 0.62 + rz * side * 0.64]);
+    const sl = this.sliding;
+    // дымок при срыве
+    if (sl > 0.2) {
+      for (const w of rear) if (fx.chance(sl * 0.7)) fx.smoke(w[0], w[1] + 0.15, w[2], -sh * 1.5 + (Math.random() - 0.5), 0.5, -ch * 1.5 + (Math.random() - 0.5), 0.86, 0.7 + sl * 0.6, 0.9, 0.18 + sl * 0.2);
     }
-
-    // искры заноса
-    if (this.drifting && near) {
-      const c = DRIFT_COLORS[this.driftLevel];
-      const n = this.driftLevel > 0 ? 3 : 1;
-      for (const w of rear) {
-        for (let i = 0; i < n; i++) {
-          if (!fx.chance(0.9)) continue;
-          const a = Math.random() * 6.28;
-          fx.spark(w[0], w[1] + 0.1, w[2],
-            -sh * 3 + Math.cos(a) * 2 + rx * this.driftDir * 2, 1.5 + Math.random() * 2.5, -ch * 3 + Math.sin(a) * 2 + rz * this.driftDir * 2,
-            c[0], c[1], c[2], this.driftLevel > 0 ? 0.26 : 0.14, 0.25 + Math.random() * 0.2);
-        }
-        if (fx.chance(0.35)) fx.smoke(w[0], w[1] + 0.2, w[2], -sh * 2 + (Math.random() - 0.5), 0.6, -ch * 2 + (Math.random() - 0.5), 0.88, 0.9, 0.8, 0.22);
-      }
-    }
-    // пыль на траве / песке
-    if (this.onGrass && sp > 4 && near) {
+    // трава и пыль
+    if (this.surface === SURF.GRASS && sp > 3) {
       const col = this.race.dustColor;
-      for (const w of rear) if (fx.chance(0.5)) fx.dust(w[0], w[1] + 0.2, w[2], -sh * 2 + (Math.random() - 0.5) * 2, 1 + Math.random() * 1.5, -ch * 2 + (Math.random() - 0.5) * 2, col[0], col[1], col[2], 1.0);
+      for (const w of rear) if (fx.chance(0.45)) fx.dust(w[0], w[1] + 0.2, w[2], -sh * 2 + (Math.random() - 0.5) * 2, 0.8 + Math.random(), -ch * 2 + (Math.random() - 0.5) * 2, col[0], col[1], col[2], 0.9);
     }
-    // пламя и дым выхлопа
-    // выхлоп справа сзади (локальный x = -0.47 — это правая сторона)
+    if (this.spinT > 0 && fx.chance(0.6)) fx.smoke(this.x, this.y + 0.3, this.z, (Math.random() - 0.5) * 3, 1, (Math.random() - 0.5) * 3, 0.8, 1.1, 0.9, 0.35);
     const ex = this.x - sh * 1.15 + rx * 0.47, ez = this.z - ch * 1.15 + rz * 0.47;
-    if (this.boostT > 0 && near) {
-      for (let i = 0; i < 2; i++) fx.flame(ex, this.y + 0.5, ez, -sh * 4 + (Math.random() - 0.5), 0.5 + Math.random(), -ch * 4 + (Math.random() - 0.5), 1 + this.boostPow * 0.5);
-    }
-    if (this.stallT > 0 && near) {
-      for (const w of rear) fx.smoke(w[0], w[1] + 0.2, w[2], (Math.random() - 0.5) * 2, 1, (Math.random() - 0.5) * 2, 0.9, 1.2, 1.0, 0.4);
-    }
-    if (this.spinT > 0 && near && fx.chance(0.6)) {
-      fx.smoke(this.x, this.y + 0.3, this.z, (Math.random() - 0.5) * 3, 1, (Math.random() - 0.5) * 3, 0.8, 1.1, 0.9, 0.35);
-    }
-
+    if (this.boostT > 0) for (let i = 0; i < 2; i++) fx.flame(ex, this.y + 0.5, ez, -sh * 4 + (Math.random() - 0.5), 0.5 + Math.random(), -ch * 4 + (Math.random() - 0.5), 1 + this.boostPow * 0.5);
     // следы шин
-    const skid = (this.drifting || Math.abs(this.vl) > 4.5 || this.spinT > 0 || this.stallT > 0) && !this.onGrass && this.airY <= 0.01 && sp > 2;
+    const skid = (sl > 0.25 || this.lock || this.spin || this.spinT > 0) && this.surface !== SURF.GRASS && sp > 2;
     for (let k = 0; k < 2; k++) {
       const w = rear[k];
       if (!skid) { this.skidPrev[k] = null; continue; }
@@ -549,13 +338,11 @@ export class Kart {
       const p = this.skidPrev[k];
       if (p) {
         const dd = (p[0][0] - l[0]) ** 2 + (p[0][2] - l[2]) ** 2;
-        if (dd > 0.25 && dd < 16) {
-          fx.skids.add(p[0][0], p[0][1], p[0][2], p[1][0], p[1][1], p[1][2], l[0], l[1], l[2], r[0], r[1], r[2]);
-          this.skidPrev[k] = [l, r];
-        } else if (dd >= 16) this.skidPrev[k] = [l, r];
+        if (dd > 0.2 && dd < 16) { fx.skids.add(p[0][0], p[0][1], p[0][2], p[1][0], p[1][1], p[1][2], l[0], l[1], l[2], r[0], r[1], r[2]); this.skidPrev[k] = [l, r]; }
+        else if (dd >= 16) this.skidPrev[k] = [l, r];
       } else this.skidPrev[k] = [l, r];
     }
   }
 }
 
-export { wrapAngle };
+export { wrapAngle, geoms };

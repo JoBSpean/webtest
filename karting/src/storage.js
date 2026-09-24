@@ -1,15 +1,19 @@
 // Настройки и рекорды — в localStorage (если доступен).
-const KEY = 'apex-karting-v1';
+const KEY = 'apex-karting-v2';
 
 const DEFAULTS = {
   quality: null,        // выбирается автоматически при первом запуске
   qualityAuto: true,    // снижать качество, если не хватает FPS
   master: 0.8, music: 0.45, sfx: 0.9,
-  camera: 0,
+  camera: 0,            // 0 — сверху, 1 — погоня, 2 — погоня издалека
   touch: 'auto',
+  assist: 1,            // помощь руля: 1 — полная, 0.5 — лёгкая, 0.15 — почти без неё
+  gearbox: 'auto',      // KZ2: авто или ручная коробка
+  cls: 'ok',
+  category: 'real',
   fps: false,
   driverId: 'vikhr',
-  trackId: 'valley',
+  trackId: 'lonato',
   difficulty: 'normal',
   laps: 3,
   opponents: 7,
@@ -33,8 +37,15 @@ export class Store {
     try { localStorage.setItem(KEY, JSON.stringify(this.data)); } catch (e) { /* нет места или доступа */ }
   }
   setSettings(patch) { Object.assign(this.data.settings, patch); this.save(); }
-  record(trackId) {
-    return this.data.records[trackId] || (this.data.records[trackId] = { bestLap: null, ghost: null, trace: null, driverId: null, bestRace: {} });
+  // key = 'трасса:класс'
+  record(key) {
+    return this.data.records[key] || (this.data.records[key] = { bestLap: null, ghost: null, trace: null, driverId: null, bestRace: {}, bestSectors: [null, null, null] });
+  }
+  saveSector(key, i, t) {
+    const r = this.record(key);
+    if (!r.bestSectors) r.bestSectors = [null, null, null];
+    r.bestSectors[i] = Math.round(t * 1000) / 1000;
+    this.save();
   }
   saveLap(trackId, time, frames, trace, driverId) {
     const r = this.record(trackId);

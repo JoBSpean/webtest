@@ -6,8 +6,10 @@ const KEYS = {
   right: ['ArrowRight', 'KeyD'],
   gas: ['ArrowUp', 'KeyW'],
   brake: ['ArrowDown', 'KeyS'],
-  drift: ['Space', 'ShiftLeft', 'ShiftRight'],
-  item: ['KeyE', 'KeyX', 'ControlLeft', 'ControlRight', 'Enter'],
+  shiftUp: ['KeyE', 'PageUp'],
+  shiftDown: ['KeyQ', 'PageDown'],
+  item: ['KeyX', 'ControlLeft', 'ControlRight', 'Enter'],
+  skip: ['Space', 'Enter'],
   look: ['KeyC'],
   camera: ['KeyV'],
   reset: ['KeyR'],
@@ -24,7 +26,7 @@ export class Input {
     this.touchActive = false;
     this.padPrev = [];
     this.gamepadActive = false;
-    this.state = { steer: 0, throttle: 0, brake: 0, drift: false, driftPressed: false, item: false, look: false, camera: false, reset: false, pause: false, mute: false };
+    this.state = { steer: 0, throttle: 0, brake: 0, item: false, look: false, camera: false, reset: false, pause: false, mute: false, shiftUp: false, shiftDown: false, skip: false };
     addEventListener('keydown', (e) => {
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
       if (!e.repeat) this.pressed.add(e.code);
@@ -59,16 +61,17 @@ export class Input {
   // читаем все источники; вызывать раз в кадр
   poll(autoGas = false) {
     const st = this.state;
-    let steer = 0, gas = 0, brake = 0, drift = false, driftP = false, item = false, look = false;
+    let steer = 0, gas = 0, brake = 0, item = false, look = false, up = false, down = false;
     if (this.is('left')) steer -= 1;
     if (this.is('right')) steer += 1;
     if (this.is('gas')) gas = 1;
-    if (this.is('brake')) brake = 1;
-    if (this.is('drift')) drift = true;
-    if (this.was('drift')) driftP = true;
+    // клавиша тормоза — чуть ниже порога блокировки: у кнопки нет «полунажатия»
+    if (this.is('brake')) brake = 0.88;
     if (this.was('item')) item = true;
     if (this.is('look')) look = true;
-    let camera = this.was('camera'), reset = this.was('reset'), pause = this.was('pause'), mute = this.was('mute');
+    if (this.was('shiftUp')) up = true;
+    if (this.was('shiftDown')) down = true;
+    let camera = this.was('camera'), reset = this.was('reset'), pause = this.was('pause'), mute = this.was('mute'), skip = this.was('skip');
 
     // геймпад (стандартная раскладка)
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -79,29 +82,27 @@ export class Input {
       const prev = this.padPrev[p.index] || [];
       const edge = (i) => b(i) && !prev[i];
       const ax = p.axes[0] || 0;
-      const any = Math.abs(ax) > 0.15 || p.buttons.some((x) => x.pressed);
-      if (any) this.gamepadActive = true;
-      if (Math.abs(ax) > 0.12) steer += Math.sign(ax) * ((Math.abs(ax) - 0.12) / 0.88);
+      if (Math.abs(ax) > 0.15 || p.buttons.some((x) => x.pressed)) this.gamepadActive = true;
+      if (Math.abs(ax) > 0.1) steer += Math.sign(ax) * ((Math.abs(ax) - 0.1) / 0.9);
       if (b(14)) steer -= 1;
       if (b(15)) steer += 1;
       gas = Math.max(gas, bv(7), b(0) ? 1 : 0);
-      brake = Math.max(brake, bv(6), b(2) ? 1 : 0);
-      if (b(5) || b(4) || b(1)) drift = true;
-      if (edge(5) || edge(4) || edge(1)) driftP = true;
+      brake = Math.max(brake, bv(6), b(2) ? 0.88 : 0);
+      if (edge(5)) up = true;
+      if (edge(4)) down = true;
       if (edge(3)) item = true;
-      if (b(10) || b(11)) look = true;
+      if (b(1) || b(10) || b(11)) look = true;
       if (edge(8)) camera = true;
       if (edge(9)) pause = true;
+      if (edge(0)) skip = true;
       this.padPrev[p.index] = p.buttons.map((x) => x.pressed);
     }
 
-    // сенсорные кнопки
+    // сенсорные кнопки (газ автоматический)
     const t = this.touch;
     if (t.left) steer -= 1;
     if (t.right) steer += 1;
-    if (t.brake) brake = 1;
-    if (t.drift) drift = true;
-    if (this.touchPressed.has('drift')) driftP = true;
+    if (t.brake) brake = 0.88;
     if (this.touchPressed.has('item')) item = true;
     if (this.touchPressed.has('pause')) pause = true;
     if (autoGas && !t.brake) gas = 1;
@@ -110,11 +111,10 @@ export class Input {
     st.steer = clamp(steer, -1, 1);
     st.throttle = gas;
     st.brake = brake;
-    st.drift = drift;
-    st.driftPressed = driftP;
     st.item = item;
     st.look = look;
-    st.camera = camera; st.reset = reset; st.pause = pause; st.mute = mute;
+    st.shiftUp = up; st.shiftDown = down;
+    st.camera = camera; st.reset = reset; st.pause = pause; st.mute = mute; st.skip = skip;
     this.pressed.clear();
     this.touchPressed.clear();
     return st;

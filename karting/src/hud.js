@@ -1,6 +1,6 @@
-// Игровой интерфейс поверх сцены.
+// Игровой интерфейс поверх сцены: тайминг по секторам, приборная панель карта,
+// позиции, мини-карта с секторами и пит-лейном, стартовые огни, сообщения.
 import { fmtTime, fmtDelta, clamp } from './util.js';
-import { DRIFT_COLORS } from './kart.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -12,20 +12,24 @@ export const ITEM_SVG = {
 };
 ITEM_SVG.nitro3 = ITEM_SVG.nitro;
 const ROULETTE = ['nitro', 'rocket', 'oil', 'shield'];
+const SECTOR_TINT = ['rgba(255,208,0,0.95)', 'rgba(95,212,255,0.95)', 'rgba(242,243,245,0.95)'];
 
 export class HUD {
   constructor() {
     this.root = $('hud');
     this.el = {
-      posNum: $('pos-num'), posOf: $('pos-of'), lap: $('lap-num'), tower: $('tower'),
+      pos: $('hudPos'), posBig: $('pos-big'), posNum: $('pos-num'), posOf: $('pos-of'), lapLine: $('lapLine'),
+      watch: $('watchTag'), tower: $('tower'),
       slot: $('item-slot'), icon: $('item-icon'), cnt: $('item-cnt'), fps: $('fps'),
       lights: $('lights'), msgs: $('msgs'), wrong: $('wrongway'), minimap: $('minimap'),
-      leds: $('leds'), speed: $('speed'), ltNow: $('lt-now'), ltDelta: $('lt-delta'), ltBest: $('lt-best'),
-      drift: $('drift'), lines: $('speedlines'), hitflash: $('hitflash'), touch: $('touch'),
+      leds: $('leds'), speed: $('speed'), gear: $('gear'), rpm: $('rpm'), classTag: $('classTag'),
+      ltNow: $('lt-now'), ltDelta: $('lt-delta'), ltLast: $('lt-last'), ltBest: $('lt-best'), ltRec: $('lt-rec'),
+      timing: $('timing'), sectors: $('sectors'),
+      lines: $('speedlines'), hitflash: $('hitflash'), touch: $('touch'),
     };
     this.el.leds.innerHTML = Array.from({ length: 12 }, (_, i) => `<i class="${i < 6 ? 'g' : i < 10 ? 'y' : 'r'}"></i>`).join('');
     this.ledEls = Array.from(this.el.leds.children);
-    this.driftEls = Array.from(this.el.drift.querySelectorAll('b'));
+    this.secEls = Array.from(this.el.sectors.children).map((s) => ({ root: s, b: s.querySelector('b') }));
     this.cache = {};
     this.lastRoulette = 0;
     this.fpsAcc = 0; this.fpsN = 0;
@@ -33,7 +37,13 @@ export class HUD {
   }
 
   show(v) { this.root.hidden = !v; if (!v) this.showTouch(false); }
-  showTouch(v) { this.el.touch.hidden = !(v && this.touchEnabled); document.body.classList.toggle('touch-on', !!(v && this.touchEnabled)); }
+  showTouch(v) {
+    const on = !!(v && this.touchEnabled && this.race && this.race.player);
+    this.el.touch.hidden = !on;
+    document.body.classList.toggle('touch-on', on);
+    const it = this.el.touch.querySelector('[data-touch=item]');
+    if (it) it.hidden = !(this.race && this.race.itemsOn);
+  }
   showFps(v) { this.el.fps.hidden = !v; }
 
   set(key, el, val, prop = 'textContent') {
@@ -48,20 +58,47 @@ export class HUD {
     this.el.msgs.innerHTML = '';
     this.el.wrong.hidden = true;
     this.el.lights.hidden = true;
-    this.startLights(0);
-    this.el.tower.hidden = race.karts.length < 2;
-    this.el.slot.hidden = false;
+    const watch = race.mode === 'watch';
+    const multi = race.karts.length > 1 && !watch;
+    this.el.tower.hidden = !multi;
+    this.el.posBig.hidden = !multi;
+    this.el.pos.hidden = watch;
+    this.el.watch.hidden = !watch;
+    if (watch) this.el.watch.textContent = 'Нейропилот · ' + (race.watchKart ? race.watchKart.name : '');
+    this.el.slot.hidden = !race.itemsOn;
+    this.el.classTag.textContent = race.cls.short;
+    this.el.gear.textContent = race.cls.gears ? '1' : '—';
+    this.el.ltRec.textContent = fmtTime(race.rec.bestLap);
+    this.el.ltLast.textContent = fmtTime(null);
+    this.el.ltBest.textContent = fmtTime(null);
+    this.clearSectors(true);
     this.drawMinimapBase(race);
-    // строки таблицы позиций
     this.el.tower.innerHTML = race.karts.map(() => '<div class="row"><span class="p"></span><i></i><span class="n"></span><span class="g"></span></div>').join('');
     this.rows = Array.from(this.el.tower.children).map((r) => ({ r, p: r.children[0], i: r.children[1], n: r.children[2], g: r.children[3] }));
-    this.el.ltBest.textContent = fmtTime(race.rec.bestLap);
     this.boostT = 0;
+    this.watchSec = { sector: 0, start: 0, lap: 0 };
+  }
+
+  clearSectors(all) {
+    this.secEls.forEach((s, i) => {
+      if (!all && i === 0) return;
+      s.root.className = 'sec';
+      s.b.textContent = '—';
+    });
+  }
+
+  // окраска сектора как в настоящем тайминге: фиолетовый — абсолютный лучший,
+  // зелёный — личный лучший, жёлтый — медленнее
+  sectorDone(i, t, color) {
+    if (i === 0) this.clearSectors(false);
+    const s = this.secEls[i];
+    s.root.className = 'sec ' + color;
+    s.b.textContent = t.toFixed(3);
   }
 
   drawMinimapBase(race) {
     const g = race.geom;
-    const b = g.bounds(20);
+    const b = g.bounds(12);
     const c = document.createElement('canvas');
     c.width = c.height = 340;
     const ctx = c.getContext('2d');
@@ -70,16 +107,38 @@ export class HUD {
     this.map = { sc, ox, oz, minX: b.minX, minZ: b.minZ };
     const tx = (x) => ox + (x - b.minX) * sc, tz = (z) => oz + (z - b.minZ) * sc;
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    ctx.beginPath();
-    for (let i = 0; i <= g.N; i += 2) { const k = i % g.N; ctx.lineTo(tx(g.px[k]), tz(g.pz[k])); }
-    ctx.closePath();
-    ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 16; ctx.stroke();
-    ctx.strokeStyle = 'rgba(242,243,245,0.9)'; ctx.lineWidth = 9; ctx.stroke();
-    ctx.strokeStyle = '#2a2e36'; ctx.lineWidth = 5; ctx.stroke();
-    // старт
-    const a = g.pointAt(0, -g.half), bb = g.pointAt(0, g.half);
-    ctx.strokeStyle = '#ffd000'; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.moveTo(tx(a.x), tz(a.z)); ctx.lineTo(tx(bb.x), tz(bb.z)); ctx.stroke();
+    // пит-лейн
+    if (g.pit) {
+      ctx.beginPath();
+      for (let i = 0; i <= g.pit.M; i += 2) ctx.lineTo(tx(g.pit.x[i]), tz(g.pit.z[i]));
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 7; ctx.stroke();
+      ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = 'rgba(200,205,215,0.75)'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    const loop = () => { ctx.beginPath(); for (let i = 0; i <= g.N; i += 2) { const k = i % g.N; ctx.lineTo(tx(g.px[k]), tz(g.pz[k])); } ctx.closePath(); };
+    loop();
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 15; ctx.stroke();
+    ctx.strokeStyle = '#2a2e36'; ctx.lineWidth = 9; ctx.stroke();
+    // секторы — тонкая цветная линия по оси
+    for (let sct = 0; sct < 3; sct++) {
+      const s0 = g.sectorS[sct], s1 = sct < 2 ? g.sectorS[sct + 1] : g.length;
+      ctx.beginPath();
+      for (let s = s0; s <= s1; s += 2) { const i = g.sIdx(s); ctx.lineTo(tx(g.px[i]), tz(g.pz[i])); }
+      ctx.strokeStyle = SECTOR_TINT[sct]; ctx.lineWidth = 3.2; ctx.stroke();
+    }
+    // границы секторов и старт/финиш
+    for (let sct = 0; sct < 3; sct++) {
+      const s = g.sectorS[sct];
+      const a = g.pointAt(s, -g.half - 2), bb = g.pointAt(s, g.half + 2);
+      ctx.strokeStyle = sct === 0 ? '#ffffff' : 'rgba(255,255,255,0.7)'; ctx.lineWidth = sct === 0 ? 4 : 2;
+      ctx.beginPath(); ctx.moveTo(tx(a.x), tz(a.z)); ctx.lineTo(tx(bb.x), tz(bb.z)); ctx.stroke();
+      if (sct > 0) {
+        const p = g.pointAt(s, g.half + 9);
+        ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.font = '700 15px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('S' + (sct + 1), tx(p.x), tz(p.z));
+      }
+    }
     this.mapBase = c;
     this.mapCtx = this.el.minimap.getContext('2d');
   }
@@ -91,14 +150,15 @@ export class HUD {
     const tx = (x) => m.ox + (x - m.minX) * m.sc, tz = (z) => m.oz + (z - m.minZ) * m.sc;
     for (const h of race.items.hazards) { ctx.fillStyle = '#8d8dff'; ctx.fillRect(tx(h.x) - 3, tz(h.z) - 3, 6, 6); }
     for (const r of race.items.rockets) { ctx.fillStyle = '#ff5a2a'; ctx.beginPath(); ctx.arc(tx(r.x), tz(r.z), 4, 0, 7); ctx.fill(); }
-    const ks = race.karts.slice().sort((a, b) => (a.isPlayer ? 1 : 0) - (b.isPlayer ? 1 : 0));
+    const focus = race.focus;
+    const ks = race.karts.slice().sort((a, b) => (a === focus ? 1 : 0) - (b === focus ? 1 : 0));
     for (const k of ks) {
-      const x = tx(k.x), y = tz(k.z);
+      const x = tx(k.x), y = tz(k.z), me = k === focus;
       ctx.beginPath();
-      ctx.arc(x, y, k.isPlayer ? 9 : 6.5, 0, Math.PI * 2);
+      ctx.arc(x, y, me ? 8.5 : 6, 0, Math.PI * 2);
       ctx.fillStyle = k.driver.color; ctx.fill();
-      ctx.lineWidth = k.isPlayer ? 3.5 : 2;
-      ctx.strokeStyle = k.isPlayer ? '#ffd000' : '#0f1115'; ctx.stroke();
+      ctx.lineWidth = me ? 3.5 : 2;
+      ctx.strokeStyle = me ? '#ffd000' : '#0f1115'; ctx.stroke();
     }
   }
 
@@ -121,31 +181,54 @@ export class HUD {
   lapFlash(time, kind, prevRecord) {
     const d = document.createElement('div');
     d.className = 'lapflash ' + kind;
-    const label = { record: 'Рекорд трассы', fastest: 'Быстрейший круг', pb: 'Личный лучший', normal: 'Круг' }[kind];
+    const label = { record: 'Рекорд трассы', fastest: 'Быстрейший круг', pb: 'Личный лучший', normal: 'Круг', invalid: 'Круг не засчитан' }[kind];
     let extra = '';
     if (kind === 'record' && prevRecord != null) extra = ' ' + fmtDelta(time - prevRecord);
     d.innerHTML = `<small>${label}</small>${fmtTime(time)}${extra}`;
     this.el.msgs.appendChild(d);
     setTimeout(() => d.remove(), 2600);
-    if (kind === 'record') this.el.ltBest.textContent = fmtTime(time);
+    if (kind === 'record') this.el.ltRec.textContent = fmtTime(time);
   }
 
   boostFlash() { this.boostT = 0.5; }
 
+  // секторы нейропилота считаем здесь: у просмотра нет собственного тайминга
+  watchTiming(race, k) {
+    const g = race.geom, ws = this.watchSec;
+    if (ws.lap) return;
+    const p = k.progress;
+    const bestSec = race.rec.bestSectors || [];
+    const mark = (i, t) => {
+      const b = bestSec[i];
+      this.sectorDone(i, t, b == null || t <= b ? 'purple' : t <= b * 1.02 ? 'green' : 'yellow');
+    };
+    if (ws.sector === 0 && p >= g.sectorS[1]) { mark(0, race.time - ws.start); ws.sector = 1; ws.start = race.time; }
+    if (ws.sector === 1 && p >= g.sectorS[2]) { mark(1, race.time - ws.start); ws.sector = 2; ws.start = race.time; }
+    if (ws.sector === 2 && p >= g.length) { mark(2, race.time - ws.start); ws.lap = race.time; }
+  }
+
   update(race, dt) {
-    const P = race.player;
     const el = this.el;
-    // FPS
     this.fpsAcc += dt; this.fpsN++;
     if (this.fpsAcc > 0.5) { el.fps.textContent = Math.round(this.fpsN / this.fpsAcc) + ' FPS'; this.fpsAcc = 0; this.fpsN = 0; }
+    const watch = race.mode === 'watch';
+    const P = watch ? race.watchKart : race.player;
     if (!P) return;
     const n = race.karts.length;
-    this.set('pos', el.posNum, String(P.rank + 1));
-    this.set('of', el.posOf, '/' + n);
-    this.set('lap', el.lap, Math.min(race.laps, P.lapsDone + 1) + '/' + race.laps);
+
+    // позиция и круг
+    if (!watch) {
+      this.set('pos', el.posNum, String(P.rank + 1));
+      this.set('of', el.posOf, '/' + n);
+      let lapTxt;
+      if (P.outLap) lapTxt = 'Круг выхода из боксов';
+      else if (P.finished) lapTxt = 'Финиш';
+      else lapTxt = 'Круг <b>' + Math.min(race.laps, P.lapTimes.length + 1) + '/' + race.laps + '</b>';
+      this.set('lap', el.lapLine, lapTxt, 'innerHTML');
+    }
 
     // таблица позиций
-    if (this.rows && n > 1) {
+    if (this.rows && n > 1 && !watch) {
       const lead = race.order[0];
       race.order.forEach((k, i) => {
         const r = this.rows[i];
@@ -157,73 +240,86 @@ export class HUD {
         else if (i === 0) gap = 'Лидер';
         else {
           const dd = (lead.finished ? race.laps * race.geom.length : lead.progress) - k.progress;
-          gap = dd > race.geom.length ? '+' + Math.floor(dd / race.geom.length) + ' кр.' : '+' + (dd / Math.max(15, k.speed || 20)).toFixed(1);
+          gap = dd > race.geom.length ? '+' + Math.floor(dd / race.geom.length) + ' кр.' : '+' + (dd / Math.max(12, k.speed || 15)).toFixed(1);
         }
         this.set('tg' + i, r.g, gap);
-        const cls = 'row' + (k.isPlayer ? ' me' : '') + (k.finished ? ' done' : '');
-        this.set('tr' + i, r.r, cls, 'className');
+        this.set('tr' + i, r.r, 'row' + (k.isPlayer ? ' me' : '') + (k.finished ? ' done' : ''), 'className');
       });
     }
 
-    // предмет
-    if (P.rouletteT > 0) {
-      this.lastRoulette -= dt;
-      if (this.lastRoulette <= 0) {
-        this.lastRoulette = 0.08;
-        const it = ROULETTE[Math.floor(Math.random() * ROULETTE.length)];
-        el.icon.innerHTML = ITEM_SVG[it];
-        el.slot.className = 'item-slot spin';
-        this.cache.item = null;
-        race.app.audio.ctx && race.app.audio.play('tick');
-      }
-      this.set('cnt', el.cnt, true, 'hidden');
-    } else {
-      const key = (P.item || '') + P.itemCount;
-      if (this.cache.item !== key) {
-        this.cache.item = key;
-        el.icon.innerHTML = P.item ? ITEM_SVG[P.item] : '';
-        el.slot.className = 'item-slot' + (P.item ? ' ready' : '');
-        el.cnt.hidden = !(P.item && P.itemCount > 1);
-        el.cnt.textContent = '×' + P.itemCount;
+    // предмет (только фан-трассы)
+    if (race.itemsOn) {
+      if (P.rouletteT > 0) {
+        this.lastRoulette -= dt;
+        if (this.lastRoulette <= 0) {
+          this.lastRoulette = 0.08;
+          el.icon.innerHTML = ITEM_SVG[ROULETTE[Math.floor(Math.random() * ROULETTE.length)]];
+          el.slot.className = 'item-slot spin';
+          this.cache.item = null;
+          if (race.app.audio.ctx) race.app.audio.play('tick');
+        }
+        this.set('cnt', el.cnt, true, 'hidden');
+      } else {
+        const key = (P.item || '') + P.itemCount;
+        if (this.cache.item !== key) {
+          this.cache.item = key;
+          el.icon.innerHTML = P.item ? ITEM_SVG[P.item] : '';
+          el.slot.className = 'item-slot' + (P.item ? ' ready' : '');
+          el.cnt.hidden = !(P.item && P.itemCount > 1);
+          el.cnt.textContent = '×' + P.itemCount;
+        }
       }
     }
 
-    // приборная панель
-    const kmh = Math.round(P.speed * 3.6);
-    this.set('spd', el.speed, String(kmh));
-    const rpm = clamp(0.1 + (P.speed / (P.p.maxSpeed * 1.25)) * 0.88, 0, 1);
-    const on = Math.round(rpm * 12);
+    // приборная панель: км/ч, передача, обороты
+    const C = P.cls;
+    this.set('spd', el.speed, String(Math.round(Math.abs(P.u) * 3.6)));
+    this.set('gear', el.gear, C.gears ? String(P.gear) : '—');
+    this.set('rpm', el.rpm, (Math.round((P.rpm || 0) / 100) * 100).toLocaleString('ru-RU') + ' об/мин');
+    const rf = clamp(((P.rpm || 0) - C.rpmIdle) / (C.rpmMax - C.rpmIdle), 0, 1);
+    const on = Math.round(rf * 12);
     if (this.cache.leds !== on) {
       this.cache.leds = on;
       this.ledEls.forEach((l, i) => l.classList.toggle('on', i < on));
-      el.leds.classList.toggle('shift', on >= 11);
+      el.leds.classList.toggle('shift', on >= 11 && !!C.gears);
     }
-    const lapT = race.canDrive && !P.finished ? race.time - P.lapStart : P.finished ? P.lapTimes[P.lapTimes.length - 1] : 0;
-    this.set('lt', el.ltNow, fmtTime(lapT));
-    const d = race.delta();
-    const dTxt = d == null ? '' : fmtDelta(d);
-    this.set('dl', el.ltDelta, dTxt);
-    this.set('dlc', el.ltDelta, 'lt-delta' + (d == null ? '' : d < 0 ? ' neg' : ' pos'), 'className');
 
-    // шкала заноса
-    const ch = P.drifting ? P.driftCharge : 0;
-    const thr = [0.9, 1.9, 3.0];
-    for (let i = 0; i < 3; i++) {
-      const lo = i ? thr[i - 1] : 0, hi = thr[i];
-      const f = clamp((ch - lo) / (hi - lo), 0, 1);
-      const v = f.toFixed(2);
-      if (this.cache['dr' + i] !== v) { this.cache['dr' + i] = v; this.driftEls[i].style.transform = `scaleX(${v})`; }
+    // тайминг
+    if (watch) {
+      this.watchTiming(race, P);
+      const t = this.watchSec.lap || race.time;
+      this.set('lt', el.ltNow, fmtTime(t));
+      this.set('lb', el.ltBest, fmtTime(race.watchBest ?? null));
+      this.set('ll', el.ltLast, this.watchSec.lap ? fmtTime(this.watchSec.lap) : fmtTime(null));
+      this.set('dl', el.ltDelta, 'Прогресс ' + clamp((P.progress / race.geom.length) * 100, 0, 100).toFixed(1) + '%');
+      this.set('dlc', el.ltDelta, 't-delta', 'className');
+    } else {
+      let lapT;
+      if (P.finished) lapT = P.lapTimes[P.lapTimes.length - 1];
+      else if (!race.canDrive) lapT = 0;
+      else lapT = P.outLap ? race.time : race.time - P.lapStart;
+      this.set('lt', el.ltNow, P.outLap && race.canDrive ? 'выезд ' + fmtTime(lapT) : fmtTime(lapT));
+      this.set('lti', el.ltNow.style, P.lapInvalid ? 'line-through' : 'none', 'textDecoration');
+      const last = P.lapTimes.length ? P.lapTimes[P.lapTimes.length - 1] : undefined;
+      this.set('ll', el.ltLast, last === undefined ? fmtTime(null) : last === null ? 'не засчитан' : fmtTime(last));
+      this.set('lb', el.ltBest, fmtTime(isFinite(P.bestLap) ? P.bestLap : null));
+      const d = race.delta();
+      this.set('dl', el.ltDelta, d == null ? '' : fmtDelta(d) + ' к рекорду');
+      this.set('dlc', el.ltDelta, 't-delta' + (d == null ? '' : d < 0 ? ' neg' : ' pos'), 'className');
+      // текущий сектор подсвечен рамкой
+      const live = P.outLap || P.finished || !race.canDrive ? -1 : P.sector;
+      if (this.cache.live !== live) {
+        this.cache.live = live;
+        this.secEls.forEach((s, i) => s.root.classList.toggle('live', i === live));
+      }
     }
 
     // эффекты
-    const boosting = P.boostT > 0;
-    this.set('lines', el.lines, boosting ? 'speedlines on' : 'speedlines', 'className');
+    this.set('lines', el.lines, P.boostT > 0 ? 'speedlines on' : 'speedlines', 'className');
     this.set('hitf', el.hitflash, P.spinT > 1.0 ? 'hitflash on' : 'hitflash', 'className');
-    this.set('wrong', el.wrong, !(P.wrongT > 1.2 && !P.finished), 'hidden');
+    this.set('wrong', el.wrong, !(P.wrongT > 1.2 && !P.finished && !watch), 'hidden');
 
     this.mapT = (this.mapT || 0) + dt;
     if (this.mapT > 1 / 30) { this.mapT = 0; this.drawMinimap(race); }
   }
 }
-
-export { DRIFT_COLORS };

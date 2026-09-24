@@ -12,36 +12,79 @@ export class CameraRig {
     this.yaw = 0;
     this.shakeAmt = 0;
     this.fov = 70;
-    this.mode = 0; // 0 — близко, 1 — далеко
+    this.mode = 0; // 0 — сверху (2.5D), 1 — погоня, 2 — погоня издалека
     this.tv = { t: 0, kind: 0, anchor: new THREE.Vector3(), target: null, switchT: 0 };
     this.orbitA = 0;
   }
 
   shake(a) { this.shakeAmt = Math.max(this.shakeAmt, a); }
 
+  follow(dt, k, lookBack = false) {
+    if (this.mode === 0) this.top(dt, k, 1, lookBack);
+    else this.chase(dt, k, lookBack);
+  }
+
+  // вид сверху с лёгкой перспективой: камера высоко над картом, чуть позади
+  top(dt, k, zoom = 1, lookBack = false) {
+    const u = Math.abs(k.u || 0);
+    const moving = u > 3;
+    const course = moving && k.vx !== undefined ? Math.atan2(k.vx, k.vz) : k.h;
+    const target = k.h + wrapAngle(course - k.h) * 0.5;
+    this.yaw = dampAngle(this.yaw, target, 2.2, dt);
+    const yaw = lookBack ? this.yaw + Math.PI : this.yaw;
+    const hgt = (17 + clamp(u / 30, 0, 1.3) * 4) * zoom, back = 7.5 * zoom;
+    const ahead = 4 + u * 0.25;
+    V.set(k.x - Math.sin(yaw) * back, k.y + hgt, k.z - Math.cos(yaw) * back);
+    this.pos.lerp(V, 1 - Math.exp(-dt * 8));
+    V.set(k.x + Math.sin(yaw) * ahead, k.y, k.z + Math.cos(yaw) * ahead);
+    this.look.lerp(V, 1 - Math.exp(-dt * 10));
+    this.fov = damp(this.fov, 52, 3, dt);
+    this.apply(dt);
+  }
+
+  // обзор всей трассы (лаборатория ИИ)
+  overview(dt, b) {
+    const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+    const w = b.maxX - b.minX, h = b.maxZ - b.minZ;
+    const aspect = this.cam.aspect || 1.6;
+    const fov = 45, t = Math.tan((fov * Math.PI) / 360);
+    const dist = Math.max(h / 2 / t, w / 2 / (t * aspect)) * 1.05;
+    V.set(cx, dist * 0.94, cz + dist * 0.34);
+    if (dt === 0 || this.pos.distanceTo(V) > 400) this.pos.copy(V); else this.pos.lerp(V, 1 - Math.exp(-dt * 3));
+    V.set(cx, 0, cz + dist * 0.02);
+    this.look.lerp(V, dt === 0 ? 1 : 1 - Math.exp(-dt * 3));
+    this.fov = fov;
+    this.apply(dt);
+  }
+
   snapChase(k) {
     this.yaw = k.h;
-    const [dist, hgt] = this.mode ? [7.4, 3.1] : [5.4, 2.25];
+    if (this.mode === 0) {
+      this.pos.set(k.x - Math.sin(k.h) * 7.5, k.y + 17, k.z - Math.cos(k.h) * 7.5);
+      this.look.set(k.x + Math.sin(k.h) * 4, k.y, k.z + Math.cos(k.h) * 4);
+      return;
+    }
+    const [dist, hgt] = this.mode === 2 ? [7.4, 3.1] : [5.4, 2.25];
     this.pos.set(k.x - Math.sin(k.h) * dist, k.y + hgt, k.z - Math.cos(k.h) * dist);
     this.look.set(k.x + Math.sin(k.h) * 3, k.y + 1, k.z + Math.cos(k.h) * 3);
   }
 
   chase(dt, k, lookBack = false) {
-    const moving = k.speed > 3 && k.vf > 0;
+    const moving = Math.abs(k.u) > 3 && k.u > 0;
     const velYaw = moving ? Math.atan2(k.vx, k.vz) : k.h;
     const target = k.h + wrapAngle(velYaw - k.h) * 0.6 + (k.spinT > 0 ? 0 : 0);
     this.yaw = dampAngle(this.yaw, k.spinT > 0 ? this.yaw : target, 4.5, dt);
     const yaw = lookBack ? this.yaw + Math.PI : this.yaw;
-    const [dist, hgt] = this.mode ? [7.4, 3.1] : [5.4, 2.25];
+    const [dist, hgt] = this.mode === 2 ? [7.4, 3.1] : [5.4, 2.25];
     const boostPull = k.boostT > 0 ? 0.35 : 0;
-    const d = dist + boostPull + clamp(k.speed / 30, 0, 1.3) * 0.4;
-    V.set(k.x - Math.sin(yaw) * d, k.y + hgt + k.airY * 0.5, k.z - Math.cos(yaw) * d);
+    const d = dist + boostPull + clamp(Math.abs(k.u) / 30, 0, 1.3) * 0.4;
+    V.set(k.x - Math.sin(yaw) * d, k.y + hgt, k.z - Math.cos(yaw) * d);
     const kk = 1 - Math.exp(-dt * 22);
     this.pos.lerp(V, kk);
     this.pos.y = Math.max(this.pos.y, k.y + 1.2);
-    V.set(k.x + Math.sin(yaw) * 3.2, k.y + 1.0 + k.airY * 0.6, k.z + Math.cos(yaw) * 3.2);
+    V.set(k.x + Math.sin(yaw) * 3.2, k.y + 1.0, k.z + Math.cos(yaw) * 3.2);
     this.look.lerp(V, 1 - Math.exp(-dt * 20));
-    const fovT = 67 + clamp(k.speed / k.p.maxSpeed, 0, 1.25) * 7 + (k.boostT > 0 ? 5 : 0);
+    const fovT = 67 + clamp(Math.abs(k.u) / (k.cls.vmaxKmh / 3.6), 0, 1.25) * 7 + (k.boostT > 0 ? 5 : 0);
     this.fov = damp(this.fov, fovT, 4, dt);
     this.apply(dt);
   }

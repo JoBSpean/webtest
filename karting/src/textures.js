@@ -298,3 +298,108 @@ export function crowdTexture() {
   }
   return toTex(c);
 }
+
+// ---------- реалистичные текстуры спортивных трасс ----------
+
+// Асфальт картодрома: мелкий шум, светлые пятна износа, без центральной полосы
+export function kartAsphaltTexture(tone = 60) {
+  const W = 512, H = 512;
+  const [c, ctx] = canvas(W, H);
+  ctx.fillStyle = `rgb(${tone},${tone + 1},${tone + 3})`;
+  ctx.fillRect(0, 0, W, H);
+  const r = rng(91);
+  for (let i = 0; i < 16000; i++) {
+    const k = r() < 0.5 ? 20 + r() * 30 : 120 + r() * 60;
+    ctx.fillStyle = `rgba(${k},${k},${k},${0.08 + r() * 0.12})`;
+    ctx.fillRect(r() * W, r() * H, 1 + r() * 1.5, 1 + r() * 1.5);
+  }
+  for (let i = 0; i < 50; i++) {
+    const x = r() * W, y = r() * H, rad = 20 + r() * 70;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
+    const k = r() < 0.6 ? 255 : 0;
+    g.addColorStop(0, `rgba(${k},${k},${k},${0.025 + r() * 0.03})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  // стыки укладки
+  ctx.strokeStyle = 'rgba(25,25,28,0.35)'; ctx.lineWidth = 1.2;
+  for (let i = 0; i < 6; i++) { ctx.beginPath(); let x = r() * W, y = r() * H; ctx.moveTo(x, y); for (let k = 0; k < 8; k++) { x += (r() - 0.5) * 24; y += r() * 30; ctx.lineTo(x, y); } ctx.stroke(); }
+  // тонкие белые линии края полотна
+  ctx.fillStyle = 'rgba(236,236,230,0.9)';
+  ctx.fillRect(W * 0.006, 0, W * 0.012, H);
+  ctx.fillRect(W * (1 - 0.018), 0, W * 0.012, H);
+  noise(ctx, W, H, 12, 93);
+  return toTex(c);
+}
+
+// накатанная резина: мягкая тёмная полоса с прозрачными краями
+export function rubberTexture() {
+  const W = 64, H = 256;
+  const [c, ctx] = canvas(W, H);
+  ctx.clearRect(0, 0, W, H);
+  const r = rng(97);
+  for (let x = 0; x < W; x++) {
+    const t = x / (W - 1);
+    const a = Math.pow(Math.sin(t * Math.PI), 1.6) * 0.5;
+    for (let y = 0; y < H; y += 2) {
+      const k = a * (0.7 + r() * 0.5);
+      ctx.fillStyle = `rgba(8,8,10,${k.toFixed(3)})`;
+      ctx.fillRect(x, y, 1, 2);
+    }
+  }
+  const t = toTex(c);
+  return t;
+}
+
+// покрышки барьера: полосы трёх шин в стопке
+export function tireStackTexture() {
+  const [c, ctx] = canvas(64, 128);
+  ctx.fillStyle = '#7a7a7a'; ctx.fillRect(0, 0, 64, 128);
+  for (let i = 0; i < 3; i++) {
+    const y = i * 42.6;
+    const g = ctx.createLinearGradient(0, y, 0, y + 42);
+    g.addColorStop(0, '#303030'); g.addColorStop(0.2, '#b0b0b0'); g.addColorStop(0.5, '#8c8c8c'); g.addColorStop(0.8, '#b0b0b0'); g.addColorStop(1, '#2a2a2a');
+    ctx.fillStyle = g; ctx.fillRect(0, y + 1, 64, 40);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, y, 64, 2);
+  }
+  noise(ctx, 64, 128, 14, 99);
+  return toTex(c, { repeat: false });
+}
+
+export function concreteTexture() {
+  const [c, ctx] = canvas(256, 64);
+  ctx.fillStyle = '#b9b7b0'; ctx.fillRect(0, 0, 256, 64);
+  const r = rng(101);
+  for (let i = 0; i < 1400; i++) { const k = 150 + r() * 70; ctx.fillStyle = `rgba(${k},${k},${k - 6},0.4)`; ctx.fillRect(r() * 256, r() * 64, 2, 2); }
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; for (let x = 0; x < 256; x += 64) ctx.fillRect(x, 0, 2, 64);
+  // красно-белая окантовка сверху
+  for (let x = 0; x < 256; x += 32) { ctx.fillStyle = (x / 32) % 2 ? '#d0302a' : '#f0f0f0'; ctx.fillRect(x, 0, 32, 8); }
+  noise(ctx, 256, 64, 10, 103);
+  return toTex(c);
+}
+
+export function gravelTexture() {
+  const [c, ctx] = canvas(256, 256);
+  ctx.fillStyle = '#b09878'; ctx.fillRect(0, 0, 256, 256);
+  const r = rng(107);
+  for (let i = 0; i < 9000; i++) { const k = r(); ctx.fillStyle = k < 0.5 ? 'rgba(90,75,60,0.5)' : 'rgba(220,205,180,0.5)'; ctx.fillRect(r() * 256, r() * 256, 1.5, 1.5); }
+  return toTex(c);
+}
+
+export function canopyTexture(color) {
+  const [c, ctx] = canvas(128, 128);
+  ctx.fillStyle = color; ctx.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 8; i++) { ctx.fillStyle = i % 2 ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'; ctx.fillRect(i * 16, 0, 16, 128); }
+  return toTex(c, { repeat: false });
+}
+
+export function sectorBoardTexture(label, color) {
+  const [c, ctx] = canvas(128, 64);
+  ctx.fillStyle = '#16181d'; ctx.fillRect(0, 0, 128, 64);
+  ctx.fillStyle = color; ctx.fillRect(0, 0, 128, 10);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '900 34px "Unbounded", "Arial Black", sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, 64, 38);
+  return toTex(c, { repeat: false });
+}

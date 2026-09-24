@@ -129,7 +129,7 @@ export function buildEnvironment(scene, geom, theme, quality) {
     out.updaters.push((dt, t) => { water.material.uniforms.time.value = t; });
     out.islandRx = irx; out.islandRz = irz;
   } else {
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: gTex, roughness: 1 }));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: gTex, roughness: 1, color: theme.grassTint || 0xffffff }));
     gTex.repeat.set(3000 / 18, 3000 / 18);
     ground.position.set(cx, -0.03, cz);
     ground.receiveShadow = shadows;
@@ -202,6 +202,7 @@ export function buildEnvironment(scene, geom, theme, quality) {
 
   // трибуна у старта
   out.stands = buildGrandstand(scene, geom, theme, shadows, R);
+  out.paddock = theme.real ? buildPaddock(scene, geom, shadows, R) : null;
 
   // деревья
   if (theme.trees !== 'none' && theme.treeCount) {
@@ -224,6 +225,7 @@ export function buildEnvironment(scene, geom, theme, quality) {
       if (d < geom.barrier + 5) continue;
       if (d < geom.barrier + skirtAt(x, z) + 4) continue;
       if (out.stands && out.stands.box.distanceToPoint(new THREE.Vector3(x, 1, z)) < 6) continue;
+      if (out.paddock && out.paddock.box.distanceToPoint(new THREE.Vector3(x, 1, z)) < 8) continue;
       pts.push([x, z]);
     }
     buildTrees(scene, pts, theme.trees, shadows && quality === 'high', R);
@@ -276,10 +278,25 @@ function buildTrees(scene, pts, kind, castShadow, R) {
     scene.add(trunk, leaves);
     return;
   }
+  if (kind === 'mixed') {
+    const a = [], b = [];
+    pts.forEach((p, i) => (i % 3 === 0 ? a : b).push(p));
+    buildTrees(scene, a, 'pine', castShadow, R);
+    buildTrees(scene, b, 'broadleaf', castShadow, R);
+    return;
+  }
   const isPine = kind === 'pine';
+  const isCypress = kind === 'cypress';
   const trunkG = new THREE.CylinderGeometry(0.22, 0.32, 2.4, 6).translate(0, 1.2, 0);
   let crownG;
-  if (isPine) {
+  if (isCypress) {
+    // итальянские кипарисы: высокие узкие свечи
+    const c1 = new THREE.CylinderGeometry(0.2, 1.0, 7.5, 8, 3).translate(0, 5.6, 0);
+    const pos = c1.attributes.position;
+    for (let i = 0; i < pos.count; i++) { const y = pos.getY(i); const k = 1 - Math.pow((y - 5.6) / 3.75, 2) * 0.25; pos.setX(i, pos.getX(i) * k); pos.setZ(i, pos.getZ(i) * k); }
+    c1.computeVertexNormals();
+    crownG = c1;
+  } else if (isPine) {
     crownG = mergeGeometries([
       new THREE.ConeGeometry(2.2, 3.5, 7).translate(0, 3.4, 0),
       new THREE.ConeGeometry(1.7, 3, 7).translate(0, 5.0, 0),
@@ -299,8 +316,10 @@ function buildTrees(scene, pts, kind, castShadow, R) {
     dummy.position.set(x, 0, z); dummy.rotation.set(0, R() * Math.PI * 2, 0); dummy.scale.set(s, s * (0.85 + R() * 0.4), s);
     dummy.updateMatrix();
     trunk.setMatrixAt(i, dummy.matrix); crown.setMatrixAt(i, dummy.matrix);
-    const autumn = R() < 0.12;
+    const autumn = !isPine && !isCypress && R() < 0.1;
     if (autumn) col.setHSL(0.08 + R() * 0.05, 0.65, 0.42);
+    else if (isCypress) col.setHSL(0.27 + R() * 0.05, 0.4, 0.2 + R() * 0.06);
+    else if (isPine) col.setHSL(0.3 + R() * 0.06, 0.35 + R() * 0.15, 0.2 + R() * 0.08);
     else col.setHSL(0.24 + R() * 0.1, 0.45 + R() * 0.2, 0.26 + R() * 0.12);
     crown.setColorAt(i, col);
   });
@@ -308,11 +327,45 @@ function buildTrees(scene, pts, kind, castShadow, R) {
   scene.add(trunk, crown);
 }
 
+// паддок: грузовики команд и навесы за пит-лейном
+function buildPaddock(scene, geom, shadows, R) {
+  const P = geom.pit;
+  if (!P) return null;
+  const g = new THREE.Group();
+  const cols = [0xf2f2f2, 0x1f3f7a, 0xc9302a, 0x2b2f36, 0xe8c21a, 0x2e7d4b];
+  const bodyGeo = new THREE.BoxGeometry(2.5, 3.2, 12);
+  const cabGeo = new THREE.BoxGeometry(2.5, 2.6, 2.4);
+  const awnGeo = new THREE.BoxGeometry(4.2, 0.12, 10);
+  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+  const wheelGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.4, 10).rotateZ(Math.PI / 2);
+  let n = 0;
+  for (let i = P.merge + 10; i < P.M - P.merge - 10; i += 17) {
+    const nx = P.nx[i], nz = P.nz[i];
+    const off = P.side * (P.half + 12 + (n % 2) * 1.5);
+    const x = P.x[i] + nx * off, z = P.z[i] + nz * off;
+    const hd = Math.atan2(P.x[Math.min(P.M, i + 1)] - P.x[i], P.z[Math.min(P.M, i + 1)] - P.z[i]);
+    const t = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: cols[n % cols.length], roughness: 0.45, metalness: 0.2 });
+    const body = new THREE.Mesh(bodyGeo, mat); body.position.set(0, 2.2, 0); body.castShadow = shadows; t.add(body);
+    const cab = new THREE.Mesh(cabGeo, mat); cab.position.set(0, 1.9, 7.3); cab.castShadow = shadows; t.add(cab);
+    const aw = new THREE.Mesh(awnGeo, new THREE.MeshStandardMaterial({ color: 0xe9e9e9, roughness: 0.7 }));
+    aw.position.set(-P.side * 3.2, 3.3, 0); aw.rotation.z = P.side * 0.08; t.add(aw);
+    for (const zz of [-4, -2.8, 6.8]) for (const xx of [-1.1, 1.1]) { const w = new THREE.Mesh(wheelGeo, wheelMat); w.position.set(xx, 0.5, zz); t.add(w); }
+    t.position.set(x, P.y[i] - 0.06, z); t.rotation.y = hd;
+    g.add(t);
+    n++;
+  }
+  scene.add(g);
+  g.updateMatrixWorld(true);
+  return { group: g, box: new THREE.Box3().setFromObject(g) };
+}
+
 function buildGrandstand(scene, geom, theme, shadows, R) {
   // ищем сторону у стартовой прямой, где есть место
   const s0 = geom.wrapS(-25);
   let side = 1;
-  for (const sd of [1, -1]) {
+  const order = geom.pit ? [-geom.pit.side, geom.pit.side] : [1, -1];
+  for (const sd of order) {
     const p = geom.pointAt(s0, sd * (geom.barrier + 14));
     if (geom.distToCenter(p.x, p.z, 2) > geom.barrier + 8) { side = sd; break; }
   }

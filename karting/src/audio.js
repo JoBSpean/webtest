@@ -30,8 +30,9 @@ export class AudioEngine {
 
     this.engines = [this.makeEngine(1), this.makeEngine(0.55), this.makeEngine(0.55)];
     // шины
-    this.skid = this.loopNoise('bandpass', 1900, 1.2);
+    this.skid = this.loopNoise('bandpass', 1900, 3);
     this.wind = this.loopNoise('lowpass', 420, 0.7);
+    this.rumble = this.loopNoise('lowpass', 140, 2);
     this.startSequencer();
   }
 
@@ -56,41 +57,54 @@ export class AudioEngine {
     return { f, g };
   }
 
-  // Двухтактный 125-кубовый мотор: пила + меандр октавой ниже через резонансный фильтр.
+  // Двухтактный мотор: вспышка каждый оборот, частота = об/мин ÷ 60.
+  // Пила + меандр октавой ниже через резонансный фильтр, плюс «звон» выхлопа.
   makeEngine(level) {
     const ctx = this.ctx;
     const o1 = ctx.createOscillator(); o1.type = 'sawtooth';
     const o2 = ctx.createOscillator(); o2.type = 'square';
+    const o3 = ctx.createOscillator(); o3.type = 'sawtooth';
     const lfo = ctx.createOscillator(); lfo.frequency.value = 23;
-    const lfoG = ctx.createGain(); lfoG.gain.value = 2.5;
+    const lfoG = ctx.createGain(); lfoG.gain.value = 2.2;
     lfo.connect(lfoG); lfoG.connect(o1.frequency); lfoG.connect(o2.frequency);
     const g1 = ctx.createGain(); g1.gain.value = 0.5;
-    const g2 = ctx.createGain(); g2.gain.value = 0.3;
+    const g2 = ctx.createGain(); g2.gain.value = 0.28;
+    const g3 = ctx.createGain(); g3.gain.value = 0.12;
     const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 5; f.frequency.value = 900;
+    const ring = ctx.createBiquadFilter(); ring.type = 'bandpass'; ring.Q.value = 8; ring.frequency.value = 2200;
     const out = ctx.createGain(); out.gain.value = 0;
-    o1.connect(g1).connect(f); o2.connect(g2).connect(f);
+    o1.connect(g1).connect(f); o2.connect(g2).connect(f); o3.connect(g3).connect(ring).connect(out);
     f.connect(out).connect(this.sfx);
-    o1.start(); o2.start(); lfo.start();
-    return { o1, o2, f, out, level };
+    o1.start(); o2.start(); o3.start(); lfo.start();
+    return { o1, o2, o3, f, ring, out, level };
   }
 
-  // rpm01: 0..1 (≈3 000–14 000 об/мин), throttle 0..1
-  setEngine(i, rpm01, throttle, vol) {
+  setEngine(i, rpm, rpmMax, throttle, vol) {
     if (!this.ctx) return;
     const e = this.engines[i];
     const t = this.ctx.currentTime;
-    const fq = 52 + rpm01 * 185;
-    e.o1.frequency.setTargetAtTime(fq, t, 0.03);
-    e.o2.frequency.setTargetAtTime(fq * 0.5, t, 0.03);
-    e.f.frequency.setTargetAtTime(500 + rpm01 * 2400 + throttle * 900, t, 0.04);
-    e.out.gain.setTargetAtTime(vol * e.level * (0.09 + throttle * 0.07 + rpm01 * 0.05), t, 0.05);
+    const x = rpmMax ? Math.min(1.05, rpm / rpmMax) : 0;
+    const fq = Math.max(30, rpm / 60);
+    e.o1.frequency.setTargetAtTime(fq, t, 0.02);
+    e.o2.frequency.setTargetAtTime(fq * 0.5, t, 0.02);
+    e.o3.frequency.setTargetAtTime(fq * 3, t, 0.02);
+    e.f.frequency.setTargetAtTime(420 + x * 2600 + throttle * 900, t, 0.03);
+    e.ring.frequency.setTargetAtTime(1500 + x * 2600, t, 0.05);
+    e.out.gain.setTargetAtTime(vol * e.level * (0.07 + throttle * 0.08 + x * 0.05), t, 0.04);
   }
-  setSkid(a) { if (this.ctx) this.skid.g.gain.setTargetAtTime(a * 0.22, this.ctx.currentTime, 0.04); }
-  setWind(a) { if (this.ctx) this.wind.g.gain.setTargetAtTime(a * 0.2, this.ctx.currentTime, 0.1); }
+  // визг шин: чем сильнее срыв, тем выше и громче
+  setSkid(a, slide = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.skid.g.gain.setTargetAtTime(a * 0.24, t, 0.04);
+    this.skid.f.frequency.setTargetAtTime(1300 + slide * 1500, t, 0.05);
+  }
+  setWind(a) { if (this.ctx) this.wind.g.gain.setTargetAtTime(a * 0.18, this.ctx.currentTime, 0.1); }
+  setRumble(a) { if (this.ctx) this.rumble.g.gain.setTargetAtTime(a * 0.35, this.ctx.currentTime, 0.03); }
   silenceEngines() {
     if (!this.ctx) return;
     for (let i = 0; i < this.engines.length; i++) this.engines[i].out.gain.setTargetAtTime(0, this.ctx.currentTime, 0.08);
-    this.setSkid(0); this.setWind(0);
+    this.setSkid(0); this.setWind(0); this.setRumble(0);
   }
 
   // ---------- одноразовые звуки ----------
