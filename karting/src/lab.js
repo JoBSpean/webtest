@@ -6,6 +6,8 @@ import * as NN from './neuro.js';
 import { TRACKS } from './trackdata.js';
 import { CLASSES } from './physics.js';
 import { Race, getGeom, recordKey } from './race.js';
+import { RaceAI } from './ai.js';
+import * as Online from './online.js';
 import { fmtTime, clamp } from './util.js';
 
 const $ = (id) => document.getElementById(id);
@@ -364,6 +366,11 @@ export class Lab {
   fresh() {
     this.geom = getGeom(this.track);
     this.lab = NN.freshLab(this.geom, CLASSES[this.cls], this.cfg, this.track, 'brain-' + this.world.nextBrain++, this.defaultBrainName());
+    if (this.cfg.teacher !== false) {
+      const t0 = performance.now();
+      NN.seedFromTeacher(this.lab, this.geom, CLASSES[this.cls], this.cfg, NN.teacherWeights(this.geom, CLASSES[this.cls], RaceAI));
+      this.teacherNote = `Старт с учителя: сеть за ${((performance.now() - t0) / 1000).toFixed(1)} с научилась повторять классического ИИ, дальше её доводит эволюция.`;
+    } else this.teacherNote = '';
     this.telemetry = []; this.acc = 0;
   }
   load(track, cls) {
@@ -380,7 +387,7 @@ export class Lab {
     if (!ok) {
       this.cfg = { ...this.cfg, goal: NN.defaultGoal(track, cls) };
       this.fresh();
-      this.status(`Новая популяция: ${this.cfg.population} случайных нейросетей · ${trackName(track)} · ${CLASSES[cls].name}.`);
+      this.status(`Новая популяция: ${this.cfg.population} пилотов · ${trackName(track)} · ${CLASSES[cls].name}. ${this.teacherNote}`);
     } else this.status(`Загружено поколение ${this.lab.generation}. Нажмите «Обучать», чтобы продолжить.`);
     this.app.labCfg = this.cfg;
     this.syncSettings();
@@ -871,17 +878,21 @@ export class Lab {
   // ---------- облако ----------
   setCloud(state, note) {
     this.cloudState = state;
-    const label = { idle: 'Облако: подключение…', local: 'Только локально', owner: 'Облако · синхронизировано', guest: 'Облако · рекорды', error: 'Облако недоступно' }[state] || state;
+    const label = { idle: 'Облако: подключение…', local: 'Только локально', owner: 'Облако · синхронизировано', guest: 'Облако · рекорды', online: 'Общие рекорды · онлайн', error: 'Облако недоступно' }[state] || state;
     const chip = $('cloudChip');
     chip.textContent = note ? label + ' · ' + note : label;
-    chip.className = 'chip' + (state === 'owner' ? ' ok' : state === 'error' ? ' warn' : '');
+    chip.className = 'chip' + (state === 'owner' || state === 'online' ? ' ok' : state === 'error' ? ' warn' : '');
     const off = state !== 'owner';
     $('cloudPush').disabled = off; $('cloudPull').disabled = off;
   }
   async initCloud() {
     let api = null;
     try { api = window.claude && typeof window.claude.use === 'function' ? window.claude : null; } catch (e) { api = null; }
-    if (!api) { this.setCloud('local'); return; }
+    if (!api) {
+      if (Online.onlineEnabled()) { this.setCloud('online'); for (const key of Object.keys(this.world.mine)) this.cloudPushScore(key, this.world.mine[key]); }
+      else this.setCloud('local');
+      return;
+    }
     const [db, dl] = await Promise.all([api.use('db').catch(() => null), api.use('downloads').catch(() => null)]);
     this.db = db; this.downloads = dl;
     if (!db) { this.setCloud('local'); return; }
@@ -978,8 +989,13 @@ export class Lab {
     } catch (e) { return false; }
   }
   async cloudPushScore(key, time, quiet = false) {
-    if (!this.db || !validKey(key)) return;
+    if (!validKey(key)) return;
     const { t, c } = splitKey(key);
+    if (!this.db) {
+      if (!Online.onlineEnabled()) return;
+      try { await Online.pushScore(this.clientID, t, c, this.app.playerName(), time); if (!$('garage').hidden && key === this.garageKey) this.cloudPullBoards(); } catch (e) { /* сеть */ }
+      return;
+    }
     try {
       const ref = this.db.collection('scores/' + docKey(t, c) + '/rows').doc(this.clientID);
       if (quiet) { const s = await ref.get(); if (s.exists && Number(s.data().time) <= time) return; }
@@ -989,8 +1005,13 @@ export class Lab {
   }
   async cloudPullBoards() {
     const body = $('board-cloud');
-    if (!this.db) { body.innerHTML = `<tr><td colspan="4">${this.cloudState === 'idle' ? 'Подключение к облаку…' : 'Облако не подключено: показаны только локальные результаты.'}</td></tr>`; return; }
     const key = this.garageKey, { t, c } = splitKey(key);
+    const paint = (rows) => { body.innerHTML = rows.length ? rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name.slice(0, 40))}</td><td>${fmtTime(r.time)}</td><td>${new Date(r.date || 0).toLocaleDateString('ru-RU')}</td></tr>`).join('') : '<tr><td colspan="4">В общей таблице пока нет результатов этой трассы и класса.</td></tr>'; };
+    if (!this.db && Online.onlineEnabled()) {
+      try { const rows = await Online.pullScores(t, c); if (key === this.garageKey) paint(rows); } catch (e) { body.innerHTML = '<tr><td colspan="4">Общая таблица недоступна.</td></tr>'; }
+      return;
+    }
+    if (!this.db) { body.innerHTML = `<tr><td colspan="4">${this.cloudState === 'idle' ? 'Подключение к облаку…' : 'Общая таблица не подключена: показаны только результаты этого браузера.'}</td></tr>`; return; }
     try {
       const snap = await this.db.collection('scores/' + docKey(t, c) + '/rows').orderBy('time', 'asc').limit(30).get();
       if (key !== this.garageKey) return;
@@ -1039,6 +1060,13 @@ export class Lab {
     on('import', () => $('file').click());
     $('file').addEventListener('change', async (e) => { const f = e.target.files[0]; if (f) await this.importFile(f); e.target.value = ''; });
     on('delete', () => this.deleteSession());
+    on('teacherBtn', async () => {
+      if (!(await this.ask(`Начать обучение «${trackName(this.track)}» (${CLASSES[this.cls].name}) заново со старта с учителя? Текущая популяция будет заменена, пилоты в гараже останутся.`, 'Заново'))) return;
+      this.training = false;
+      this.cfg.teacher = true;
+      this.status('Учитель проезжает круги и обучает сеть…');
+      setTimeout(() => { this.fresh(); this.writeSave(false); this.status(this.teacherNote + ' Нажмите «Обучать».'); this.afterSwap(); }, 30);
+    });
     on('closeGarage', () => this.closeGarage());
     $('boardTrack').addEventListener('change', () => this.garageChanged());
     $('boardClass').addEventListener('change', () => this.garageChanged());

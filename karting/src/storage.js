@@ -7,6 +7,7 @@ const DEFAULTS = {
   master: 0.8, music: 0.45, sfx: 0.9,
   camera: 1,            // 0 — сверху, 1 — от третьего лица, 2 — третье лицо издалека
   camVer: 2,
+  camDist: 1, camHeight: 1, camFov: 66, camVib: 1,
   touch: 'auto',
   assist: 1,            // помощь руля: 1 — полная, 0.5 — лёгкая, 0.15 — почти без неё
   gearbox: 'auto',      // KZ2: авто или ручная коробка

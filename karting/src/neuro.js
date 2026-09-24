@@ -15,18 +15,20 @@ export const MEM = SECTORS * 2; // 48 поправок участков
 export const GENOME = GEN + MEM;
 export const DT = 1 / 60;
 const RAY_MAX = 30;
+const STAB = { assist: 1, stab: true }; // та же стабилизация, что у игрока
 
 export const DEFAULTS = {
   population: 48, elite: 10, parents: 25, tournament: 4, selection: 'tournament', crossover: 0.35, blend: false,
   mutation: 0.12, strength: 0.3, immigrants: 0.06, fine: 0.35, fineStrength: 0.03, adaptive: true, patience: 15,
   expansion: 3, sectorMutation: 0.12, memory: true, zeroReset: 0.005,
-  timeout: 100, idle: 3, offroadGrace: 0.6, wallKill: true, reverse: 25, goal: 50, autoStop: false,
+  teacher: true, timeout: 100, idle: 3, paceCut: true, paceMargin: 6, offroadGrace: 0.6, wallKill: true, reverse: 25, goal: 50, autoStop: false,
   simBudget: 80, trainFps: 20, autoSave: 10, cloudSave: 45, history: 600, chartWindow: 120, telemetryWindow: 30,
   uiHz: 5, trail: true, ghost: true, labels: false, dead: false, follow: false,
 };
 
 // Настройки: {g группа, k ключ, n название, t тип, min/max/s, key важная, h подсказка}
 export const SETTINGS = [
+  { g: 'Основное', k: 'teacher', n: 'Старт с учителя', t: 'bool', key: 1, h: 'Новая популяция сначала учится повторять классического ИИ-соперника (обучение с учителем, 1–3 с), затем эволюция доводит её. Круг проходится уже в первых поколениях.' },
   { g: 'Основное', k: 'population', n: 'Картов в поколении', t: 'num', min: 16, max: 160, s: 1, key: 1, h: 'Больше картов — надёжнее отбор, но каждый шаг считается дольше.' },
   { g: 'Основное', k: 'mutation', n: 'Базовая мутация', t: 'num', min: 0, max: 1, s: 0.001, key: 1, h: 'Вероятность изменить один вес потомка.' },
   { g: 'Основное', k: 'strength', n: 'Сила мутации', t: 'num', min: 0.001, max: 3, s: 0.001, key: 1, h: 'На сколько сдвигается вес при мутации.' },
@@ -51,6 +53,8 @@ export const SETTINGS = [
   { g: 'Заезд', k: 'offroadGrace', n: 'Допуск травы, с', t: 'num', min: 0, max: 5, s: 0.01, h: 'Сколько можно ехать по траве до вылета из отбора.' },
   { g: 'Заезд', k: 'wallKill', n: 'Удар о покрышки — выбывание', t: 'bool', key: 1, h: 'Любое касание барьера завершает попытку.' },
   { g: 'Заезд', k: 'reverse', n: 'Допуск движения назад, м', t: 'num', min: 5, max: 100, s: 1, h: 'Насколько можно откатиться назад.' },
+  { g: 'Заезд', k: 'paceCut', n: 'Отсечка по темпу чемпиона', t: 'bool', key: 1, h: 'Карт снимается, если на той же дистанции отстаёт от лучшего круга. Главное ускорение обучения: время не тратится на медленных.' },
+  { g: 'Заезд', k: 'paceMargin', n: 'Допуск отсечки, %', t: 'num', min: 1, max: 40, s: 1, h: 'На сколько процентов можно отставать от темпа чемпиона (плюс 1.5 с).' },
   { g: 'Заезд', k: 'autoStop', n: 'Пауза при достижении цели', t: 'bool', h: 'Остановить обучение, когда круг быстрее ориентира.' },
   { g: 'Скорость', k: 'simBudget', n: 'Доля кадра на симуляцию, %', t: 'num', min: 20, max: 95, s: 1, key: 1, h: 'Главный рычаг ускорения обучения.' },
   { g: 'Скорость', k: 'trainFps', n: 'Кадров/с при обучении', t: 'num', min: 5, max: 60, s: 1, key: 1, h: 'Реже картинка — больше поколений в секунду.' },
@@ -146,19 +150,22 @@ export function newCar(geom, cls, w, parent = null, elite = false, rules = null)
 }
 
 // Один тик 1/60 с (два подшага физики по 1/120) — одинаково для обучения и просмотра.
-export function tickCar(c, geom, cfg, evolution, memory = true) {
+export function tickCar(c, geom, cfg, evolution, memory = true, pace = null) {
   if (!c.alive) return;
   const u = controls(c, geom, memory);
   c.t += DT;
   let hit = 0;
   for (let i = 0; i < 2; i++) {
-    stepDynamics(c, u, DT / 2, { assist: 1 });
+    stepDynamics(c, u, DT / 2, STAB);
     hit = Math.max(hit, collide(c, geom, DT / 2));
   }
   c.hit = hit;
   c.stale += DT;
   if (c.progress > c.max + 2) { c.max = c.progress; c.stale = 0; }
   const L = geom.length;
+  // отсечки времени по 1% круга — для отсечки по темпу
+  const pct = Math.floor((c.max / L) * 100);
+  if (pct > 0 && pct <= 100) { const sp = c.sp || (c.sp = []); while (sp.length < pct) sp.push(Math.round(c.t * 100) / 100); }
   c.cp = (c.max >= geom.sectorS[1] ? 1 : 0) + (c.max >= geom.sectorS[2] ? 1 : 0);
   if (cfg.trail && Math.floor(c.t * 10) > Math.floor((c.t - DT) * 10)) { c.trail.push([Math.round(c.x * 10) / 10, Math.round(c.z * 10) / 10, Math.round(c.y * 10) / 10]); if (c.trail.length > 1500) c.trail.shift(); }
   c.score = Math.max(0, c.max);
@@ -168,11 +175,12 @@ export function tickCar(c, geom, cfg, evolution, memory = true) {
     return;
   }
   c.offroad = c.surface === 2 ? c.offroad + DT : 0;
+  if (evolution && pace && R.paceCut !== false && pct >= 4 && pct < pace.length && c.t > pace[pct] * (1 + (R.paceMargin ?? 6) / 100) + 1.5) c.alive = false;
   if (evolution && ((R.wallKill && hit > 0.5) || c.offroad > R.offroadGrace || c.stale > R.idle || c.progress < -R.reverse || c.t >= R.timeout)) c.alive = false;
   if (!Number.isFinite(c.x) || !Number.isFinite(c.z)) c.alive = false;
 }
 
-export function rules(cfg) { return { timeout: cfg.timeout, idle: cfg.idle, offroadGrace: cfg.offroadGrace, wallKill: cfg.wallKill, reverse: cfg.reverse }; }
+export function rules(cfg) { return { timeout: cfg.timeout, idle: cfg.idle, offroadGrace: cfg.offroadGrace, wallKill: cfg.wallKill, reverse: cfg.reverse, paceCut: cfg.paceCut, paceMargin: cfg.paceMargin }; }
 
 export function diversity(pop) {
   let sum = 0;
@@ -221,7 +229,7 @@ export function leader(lab) { return lab.pop.reduce((a, b) => (b.max > a.max ? b
 // Шаг обучения: все живые карты на 1/60 с
 export function labStep(lab, geom, cfg) {
   lab.clock += DT; lab.simTime += DT;
-  for (const c of lab.pop) if (c.alive) tickCar(c, geom, cfg, true, cfg.memory);
+  for (const c of lab.pop) if (c.alive) tickCar(c, geom, cfg, true, cfg.memory, lab.pace);
   return lab.pop.every((c) => !c.alive);
 }
 
@@ -235,6 +243,7 @@ export function evolve(lab, geom, cfg) {
   const improved = !lab.champion || top.score > lab.bestScore + 0.0001;
   lab.stagnation = improved ? 0 : (lab.stagnation || 0) + 1;
   if (improved) { lab.champion = cloneCar(top); lab.bestScore = top.score; }
+  if (top.done && top.sp && (!lab.paceT || top.t < lab.paceT)) { lab.pace = top.sp.slice(); lab.paceT = top.t; }
   lab.bestProgress = Math.max(lab.bestProgress, Math.min(100, (top.max / L) * 100));
   const finishes = ranked.filter((c) => c.done), lap = finishes.length ? Math.min(...finishes.map((c) => c.t)) : null;
   if (lap !== null) lab.bestTime = lab.bestTime === null ? lap : Math.min(lap, lab.bestTime);
@@ -343,4 +352,100 @@ export function carFromBrain(b, geom, trackId, cfg) {
   const c = newCar(geom, CLASSES[b.cls] || CLASSES.ok, w, null, false, k && k.rules ? { ...k.rules } : rules(cfg));
   c.mmr = b.mmr;
   return c;
+}
+
+// ---------- старт с учителя ----------
+// Классический ИИ (RaceAI) проезжает несколько кругов с помехами на руле, мы записываем
+// входы сети и его команды и обучаем общие 122 веса повторять их (Adam, MSE).
+// Эволюция потом стартует с пилота, который уже умеет проходить круг.
+function teacherFit(geom, cls, RaceAI, opts = {}) {
+  const samples = [];
+  const laps = opts.laps || 3;
+  for (let run = 0; run < 2; run++) {
+    const k = newKartState(cls);
+    placeKart(k, geom, 0, 0);
+    k.progress = 0; k.speedScale = 1;
+    k.respawn = () => placeKart(k, geom, k.s, 0);
+    const race = { geom, karts: [k], canDrive: true, time: 0, items: null };
+    const ai = new RaceAI(race, k, { corner: 0.97 + run * 0.03, items: 0, speed: 1, rubber: 0 }, 11 + run);
+    let noise = 0, nT = 0;
+    for (let step = 0; step < 60 * 75 * laps && k.progress < geom.length * laps; step++) {
+      const cmd = ai.update(DT);
+      const x = netInputs(k, geom);
+      const qq = ((((k.s / geom.length) % 1) + 1) % 1) * SECTORS;
+      samples.push({ q: qq, x: Array.from(x), st: clamp(cmd.steer, -0.95, 0.95), pd: clamp(cmd.throttle - cmd.brake, -0.95, 0.95) });
+      nT -= DT;
+      if (nT <= 0) { nT = 0.3 + rnd() * 0.8; noise = run ? (rnd() - 0.5) * 0.5 : 0; }
+      const u = { steer: clamp(cmd.steer + noise, -1, 1), throttle: cmd.throttle, brake: cmd.brake };
+      for (let i = 0; i < 2; i++) { stepDynamics(k, u, DT / 2, STAB); collide(k, geom, DT / 2); }
+      race.time += DT;
+    }
+  }
+  // Adam по мини-пакетам
+  const W = GENOME;
+  const w = randomWeights().map((v, i) => (i < GEN ? v * 0.5 : 0));
+  const m = new Float64Array(W), v = new Float64Array(W), gr = new Float64Array(W);
+  const b1 = 0.9, b2 = 0.999, lr = opts.lr || 0.01, o2 = N_IN * N_HID;
+  const h = new Float64Array(N_HID);
+  let t = 0;
+  const epochs = opts.epochs || 60, B = 64;
+  for (let ep = 0; ep < epochs; ep++) {
+    for (let i = samples.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const tmp = samples[i]; samples[i] = samples[j]; samples[j] = tmp; }
+    for (let s0 = 0; s0 < samples.length; s0 += B) {
+      gr.fill(0);
+      const end = Math.min(samples.length, s0 + B);
+      for (let n = s0; n < end; n++) {
+        const { x, st, pd, q } = samples[n];
+        const sec = Math.floor(q) % SECTORS, fr = q - Math.floor(q), sj = (sec + 1) % SECTORS;
+        for (let j = 0; j < N_HID; j++) { let a = 0; for (let q = 0; q < N_IN; q++) a += x[q] * w[j * N_IN + q]; h[j] = Math.tanh(a); }
+        let zs = w[o2 + N_HID], zp = w[o2 + N_HID + 1 + N_HID];
+        for (let j = 0; j < N_HID; j++) { zs += h[j] * w[o2 + j]; zp += h[j] * w[o2 + N_HID + 1 + j]; }
+        zs += w[GEN + sec] * (1 - fr) + w[GEN + sj] * fr; zp += w[GEN + SECTORS + sec] * (1 - fr) + w[GEN + SECTORS + sj] * fr;
+        const ys = Math.tanh(zs), yp = Math.tanh(zp);
+        const ds = (ys - st) * (1 - ys * ys) * 2, dp = (yp - pd) * (1 - yp * yp);
+        gr[o2 + N_HID] += ds; gr[o2 + N_HID + 1 + N_HID] += dp;
+        gr[GEN + sec] += ds * (1 - fr); gr[GEN + sj] += ds * fr; gr[GEN + SECTORS + sec] += dp * (1 - fr); gr[GEN + SECTORS + sj] += dp * fr;
+        for (let j = 0; j < N_HID; j++) {
+          gr[o2 + j] += ds * h[j]; gr[o2 + N_HID + 1 + j] += dp * h[j];
+          const dh = (ds * w[o2 + j] + dp * w[o2 + N_HID + 1 + j]) * (1 - h[j] * h[j]);
+          for (let q = 0; q < N_IN; q++) gr[j * N_IN + q] += dh * x[q];
+        }
+      }
+      t++;
+      const nb = end - s0;
+      const lrT = lr * (1 - 0.8 * ep / epochs);
+      for (let i = 0; i < W; i++) {
+        const g = gr[i] / nb;
+        m[i] = b1 * m[i] + (1 - b1) * g; v[i] = b2 * v[i] + (1 - b2) * g * g;
+        w[i] = clamp(w[i] - (lrT * (m[i] / (1 - b1 ** t))) / (Math.sqrt(v[i] / (1 - b2 ** t)) + 1e-8), -8, 8);
+      }
+    }
+  }
+  return genome(w);
+}
+
+// популяция вокруг учителя: несколько точных копий, остальные с мутациями
+export function seedFromTeacher(lab, geom, cls, cfg, base) {
+  const R = rules(cfg);
+  lab.pop = lab.pop.map((c, i) => {
+    const w = base.slice();
+    if (i >= 2) for (let j = 0; j < GENOME; j++) if (rnd() < (j < GEN ? 0.2 : 0.3)) w[j] = clamp(w[j] + (rnd() + rnd() - 1) * (j < GEN ? 0.15 : 0.3), -8, 8);
+    return newCar(geom, cls, w, null, false, R);
+  });
+  lab.teacher = true;
+}
+
+// несколько попыток учителя: каждую проверяем одним кругом и берём лучшую
+export function teacherWeights(geom, cls, RaceAI, opts = {}) {
+  let best = null, bestScore = -Infinity;
+  const cfg = { ...DEFAULTS, trail: false };
+  for (let tr = 0; tr < (opts.tries || 3); tr++) {
+    const w = teacherFit(geom, cls, RaceAI, { ...opts, lr: 0.01 * (1 + tr * 0.4) });
+    const c = newCar(geom, cls, w, null, false, rules(cfg));
+    while (c.alive) tickCar(c, geom, cfg, true, true);
+    const sc = c.score;
+    if (sc > bestScore) { bestScore = sc; best = w; }
+    if (c.done) break;
+  }
+  return best;
 }

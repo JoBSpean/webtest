@@ -102,3 +102,34 @@ npm run dev     # сборка с отслеживанием и локальны
 | `src/hud.js`, `index.html` | интерфейс: тайминг, приборы, мини-карта |
 | `src/audio.js` | двухтактный мотор, визг шин, эффекты и музыка на Web Audio |
 | `src/items.js` | предметы фан-трасс |
+
+## Сайт и общие рекорды
+
+**Сайт на GitHub Pages.** В репозитории есть `.github/workflows/pages.yml`: после слияния в `main` игра публикуется по адресу `https://<владелец>.github.io/<репозиторий>/karting/`. Один раз включите: Settings → Pages → Source: **GitHub Actions**. Игра — статические файлы, её можно выложить и на любой другой хостинг (Netlify, Vercel, свой сервер): достаточно папки `karting/`.
+
+**Общая таблица рекордов для всех игроков** (бесплатная база Supabase, ~5 минут):
+
+1. Создайте проект на supabase.com.
+2. В SQL Editor выполните:
+
+```sql
+create table lap_records (
+  client_id text not null,
+  track text not null,
+  cls text not null,
+  name text not null check (char_length(name) between 1 and 30),
+  time real not null check (time between 20 and 600),
+  date timestamptz not null default now(),
+  primary key (client_id, track, cls)
+);
+alter table lap_records enable row level security;
+create policy "все читают" on lap_records for select using (true);
+create policy "все добавляют" on lap_records for insert with check (true);
+create policy "улучшение своего" on lap_records for update using (true) with check (true);
+```
+
+3. В Project Settings → API скопируйте Project URL и anon public key в `karting/online-config.js`.
+
+После этого лучший круг каждого игрока (по трассе и классу) попадает в «Общую таблицу» в разделе «Рекорды», и все видят чужие результаты. Без настройки рекорды хранятся в браузере игрока. В версии-артефакте на claude.ai общая таблица работает через встроенное хранилище.
+
+Защита от подделки здесь простая (проверка диапазона времени): для прототипа этого достаточно, для соревнований на призы понадобится проверка заездов на сервере.

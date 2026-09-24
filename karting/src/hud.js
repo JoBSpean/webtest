@@ -315,7 +315,8 @@ export class HUD {
     }
 
     // эффекты
-    this.set('lines', el.lines, P.boostT > 0 ? 'speedlines on' : 'speedlines', 'className');
+    const sf = P.boostT > 0 ? 1 : clamp((Math.abs(P.u) * 3.6 / P.cls.vmaxKmh - 0.72) / 0.28, 0, 1) * 0.75;
+    this.set('lines', el.lines.style, sf.toFixed(2), 'opacity');
     this.set('hitf', el.hitflash, P.spinT > 1.0 ? 'hitflash on' : 'hitflash', 'className');
     this.set('wrong', el.wrong, !(P.wrongT > 1.2 && !P.finished && !watch), 'hidden');
 

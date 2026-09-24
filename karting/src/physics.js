@@ -140,7 +140,7 @@ export function stepDynamics(k, inp, dt, opts) {
   k.steer = steerIn;
   // педали: короткая инерция привода газа и тормоза
   k.throttle += clamp(inp.throttle - k.throttle, -dt * 12, dt * 10);
-  k.brake += clamp(inp.brake - k.brake, -dt * 14, dt * 9);
+  k.brake += clamp(inp.brake - k.brake, -dt * 14, dt * (stab ? 4 : 9));
 
   const spinning = k.spinT > 0;
   const muS = C.mu * SURF.mu[k.surface] * (spinning ? 0.35 : 1);
@@ -166,6 +166,11 @@ export function stepDynamics(k, inp, dt, opts) {
   const throttle = spinning || k.stallT > 0 ? 0 : clamp(k.throttle, 0, 1);
   const brake = clamp(k.brake, 0, 1);
   let drive = engine(k, C, throttle, dt, opts && opts.manual);
+  // сброс газа: двухтактник на сцеплении подтормаживает, вес уходит на передок — карт охотнее поворачивает
+  if (throttle < 0.05 && u > 3) {
+    const vr = C.gears ? u / (C.gears[k.gear - 1] / 3.6) : u / (C.vmaxKmh / 3.6);
+    if (vr > C.rpmClutch / C.rpmMax) drive -= m * G * (C.gears ? 0.075 : 0.05) * Math.min(1, vr);
+  }
   const dirU = u > 0.05 ? 1 : 0;
   let Fxr = drive - brake * C.brakeR * C.mu * Fzr0 * dirU;
   let Fxf = -brake * C.brakeF * C.mu * Fzf0 * dirU;

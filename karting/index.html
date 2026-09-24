@@ -427,7 +427,11 @@ table.mini td small { display: block; color: var(--faint); font-size: 9px; }
     <div class="screen-head"><div><div class="eyebrow">Настройки</div><h2>Графика, руль и звук</h2></div></div>
     <div class="panel block options">
       <div class="opt"><span class="lbl">Графика</span><div class="seg" data-set="quality"><button data-v="low">Низкая</button><button data-v="medium">Средняя</button><button data-v="high">Высокая</button></div></div>
-      <div class="opt"><span class="lbl">Камера</span><div class="seg" data-set="camera"><button data-v="1">От третьего лица</button><button data-v="2">Издалека</button><button data-v="0">Сверху</button></div></div>
+      <div class="opt"><span class="lbl">Камера</span><div class="seg" data-set="camera"><button data-v="1">От 3-го лица</button><button data-v="2">Издалека</button><button data-v="3">С пилота</button><button data-v="0">Сверху</button></div></div>
+      <div class="opt"><label for="set-camDist">Дистанция камеры</label><input type="range" id="set-camDist" min="0.7" max="1.6" step="0.05" data-cam="camDist"></div>
+      <div class="opt"><label for="set-camHeight">Высота камеры</label><input type="range" id="set-camHeight" min="0.6" max="1.8" step="0.05" data-cam="camHeight"></div>
+      <div class="opt"><label for="set-camFov">Угол обзора</label><input type="range" id="set-camFov" min="52" max="86" step="1" data-cam="camFov"></div>
+      <div class="opt"><label for="set-camVib">Тряска на скорости</label><input type="range" id="set-camVib" min="0" max="2" step="0.1" data-cam="camVib"></div>
       <div class="opt"><span class="lbl">Помощь руля</span><div class="seg" data-set="assist"><button data-v="1">Полная</button><button data-v="0.5">Лёгкая</button><button data-v="0.15">Без помощи</button></div></div>
       <div class="opt"><span class="lbl">Коробка KZ2</span><div class="seg" data-set="gearbox"><button data-v="auto">Авто</button><button data-v="manual">Ручная</button></div></div>
       <div class="opt"><label for="set-master">Общая громкость</label><input type="range" id="set-master" min="0" max="1" step="0.05" data-vol="master"></div>
@@ -451,7 +455,7 @@ table.mini td small { display: block; color: var(--faint); font-size: 9px; }
         <span class="k"><kbd>S</kbd><kbd>↓</kbd></span><span>Тормоз (заднего хода нет)</span>
         <span class="k"><kbd>A</kbd><kbd>D</kbd></span><span>Руль</span>
         <span class="k"><kbd>E</kbd><kbd>Q</kbd></span><span>Передача вверх / вниз (KZ2, ручная)</span>
-        <span class="k"><kbd>V</kbd></span><span>Камера: от третьего лица / издалека / сверху</span>
+        <span class="k"><kbd>V</kbd></span><span>Камера: от 3-го лица / издалека / с пилота / сверху</span>
         <span class="k"><kbd>C</kbd></span><span>Взгляд назад</span>
         <span class="k"><kbd>R</kbd></span><span>Маршалы ставят на трассу (круг не засчитывается)</span>
         <span class="k"><kbd>X</kbd></span><span>Предмет (только фан-трассы)</span>
@@ -513,7 +517,7 @@ table.mini td small { display: block; color: var(--faint); font-size: 9px; }
     <label>Класс<select id="labClass"><option value="junior">Rotax Junior</option><option value="ok">OK Senior</option><option value="kz2">KZ2</option></select></label>
   </div>
   <div class="metrics"><div><small>Поколение</small><b id="generation">1</b></div><div><small>В заезде</small><b id="alive">0 / 0</b></div><div><small>Лучший прогресс</small><b id="record">0%</b></div><div><small>Лучший круг ИИ</small><b id="aiTime">—</b></div></div>
-  <div class="lab-row"><button class="btn primary sm" id="toggle">▶ Обучать</button><button class="btn sm" id="watch">Смотреть чемпиона</button><button class="btn sm" id="labExit">Выйти</button></div>
+  <div class="lab-row"><button class="btn primary sm" id="toggle">▶ Обучать</button><button class="btn sm" id="watch">Смотреть чемпиона</button><button class="btn sm" id="teacherBtn">Заново с учителем</button><button class="btn sm" id="labExit">Выйти</button></div>
   <div class="metrics small"><div><small>Фактическое ускорение</small><b id="actualRate">0×</b></div><div><small>Без улучшения</small><b id="plateau">0 пок.</b></div><div><small>Мутация с усилением</small><b id="effectiveMutation">—</b></div><div><small>Разница с целью</small><b id="targetDelta">—</b></div></div>
   <p class="note" id="targetLabel"></p>
   <p class="note">Рекорд игрока: <span id="humanRecord">—</span></p>
@@ -531,7 +535,7 @@ table.mini td small { display: block; color: var(--faint); font-size: 9px; }
   <div class="chart-title"><b>Телеметрия лидера</b><span id="telemetryLabel">последние 30 с</span></div><canvas id="liveChart" class="chart"></canvas><div class="legend"><span class="green">Скорость · км/ч</span><span class="purple">Прогресс · %</span></div>
   <details><summary>MMR, разнообразие и мутации</summary><canvas id="mmrChart" class="chart"></canvas><canvas id="diversityChart" class="chart"></canvas><canvas id="mutationChart" class="chart"></canvas></details>
   <details><summary>Управление лидера</summary><p class="note" id="liveControls"></p><canvas id="aliveChart" class="chart"></canvas><canvas id="controlChart" class="chart"></canvas></details>
-  <details><summary>Как устроено обучение</summary><p class="note">Входы сети: 7 лучей до края полотна (−80°…+80°), скорость, угол к касательной сплайна, смещение от оси, скорость рыскания и снос. Скрытый слой — 8 нейронов, выходы — руль и педаль (газ или тормоз). Всего 122 общих веса и 48 поправок «памяти поворотов» для 24 участков, отдельных на каждой трассе.</p><p class="note">Физика у ИИ та же, что у игрока: шины, жёсткий мост, тормоз только на заднюю ось. Фитнес — пройденная по сплайну дистанция; за полный круг — бонус за время. Касание покрышек, трава дольше допуска, застой и езда назад завершают попытку. Обучение каждой трассы и класса хранится отдельно.</p></details>
+  <details><summary>Как устроено обучение</summary><p class="note">Входы сети: 7 лучей до края полотна (−80°…+80°), скорость, угол к касательной сплайна, смещение от оси, скорость рыскания и снос. Скрытый слой — 8 нейронов, выходы — руль и педаль (газ или тормоз). Всего 122 общих веса и 48 поправок «памяти поворотов» для 24 участков, отдельных на каждой трассе.</p><p class="note">Старт с учителя: классический ИИ проезжает несколько кругов (часть — с помехами на руле, чтобы сеть видела и исправление ошибок), сеть обучается повторять его руль и педали, включая поправки участков. Эволюция стартует с пилота, который уже проходит круг, и за 5–10 поколений обычно обгоняет учителя. Отсечка по темпу снимает карты, которые отстают от чемпиона, — поколения идут быстрее.</p><p class="note">Физика у ИИ та же, что у игрока: шины, жёсткий мост, тормоз только на заднюю ось. Фитнес — пройденная по сплайну дистанция; за полный круг — бонус за время. Касание покрышек, трава дольше допуска, застой и езда назад завершают попытку. Обучение каждой трассы и класса хранится отдельно.</p></details>
   <details open><summary>Сохранения и данные</summary><p class="note" id="saveInfo">Автосохранение в браузер по интервалу и при смене поколения; облако получает копию по интервалу выгрузки.</p>
     <div class="data-btns"><button class="btn sm" id="saveNow">Сохранить</button><button class="btn sm" id="load">Загрузить</button><button class="btn sm" id="cloudPush">Облако ↑</button><button class="btn sm" id="cloudPull">Облако ↓</button><button class="btn sm" id="export">Экспорт JSON</button><button class="btn sm" id="import">Импорт JSON</button><button class="btn sm danger" id="delete">Удалить обучение</button></div>
     <input id="file" type="file" accept=".json,application/json" hidden><p id="dataStatus" role="status"></p></details>
@@ -553,7 +557,7 @@ table.mini td small { display: block; color: var(--faint); font-size: 9px; }
       <section>
         <h3 id="boardMap">Рекорды трассы</h3>
         <h3 style="margin-top:4px;color:var(--chalk)">Личные заезды</h3><div class="board-scroll"><table class="mini"><thead><tr><th>#</th><th>Пилот</th><th>Время</th><th>Дата</th></tr></thead><tbody id="board-human"></tbody></table></div>
-        <h3 style="color:var(--chalk)">Облачная таблица</h3><div class="board-scroll"><table class="mini"><thead><tr><th>#</th><th>Пилот</th><th>Время</th><th>Дата</th></tr></thead><tbody id="board-cloud"><tr><td colspan="4">Загрузка…</td></tr></tbody></table></div>
+        <h3 style="color:var(--chalk)">Общая таблица · все игроки</h3><div class="board-scroll"><table class="mini"><thead><tr><th>#</th><th>Пилот</th><th>Время</th><th>Дата</th></tr></thead><tbody id="board-cloud"><tr><td colspan="4">Загрузка…</td></tr></tbody></table></div>
         <div id="aiBoardWrap"><h3 style="color:var(--chalk)">Пилоты ИИ</h3><div class="board-scroll"><table class="mini"><thead><tr><th>#</th><th>Пилот</th><th>Время</th><th>Дата</th></tr></thead><tbody id="board-ai"></tbody></table></div></div>
         <button class="btn sm danger" id="clearBoard">Очистить рекорды этой трассы</button>
       </section>
@@ -604,6 +608,7 @@ table.mini td small { display: block; color: var(--faint); font-size: 9px; }
 </div>
 
 <noscript><div style="position:fixed;inset:0;display:grid;place-items:center;padding:16px;text-align:center">Для игры нужен JavaScript и WebGL.</div></noscript>
+<script src="online-config.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

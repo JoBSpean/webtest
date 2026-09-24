@@ -303,9 +303,14 @@ export class Race {
     } else if (this.mode === 'attract') this.camRig.broadcast(dt, this.karts, this.geom);
     else if (this.state === 'finished') this.camRig.orbit(dt, this.focus);
     else if (this.state !== 'intro' && this.focus) {
-      if (inp.camera) this.camRig.mode = (this.camRig.mode + 1) % 3;
+      if (inp.camera) this.camRig.mode = (this.camRig.mode + 1) % 4;
       if (this.focus.onKerb && this.focus.u > 8) this.camRig.shake(this.camRig.mode === 0 ? 0.04 + this.focus.u * 0.002 : 0.012 + this.focus.u * 0.0007);
       this.camRig.follow(dt, this.focus, inp.look);
+    }
+    // в виде с пилота тело своего пилота не рисуем: видны руль и передок
+    if (this.focus && this.focus.mesh.userData.pilot) {
+      const hide = this.camRig.mode === 3 && this.mode !== 'attract' && this.state !== 'finished' && this.state !== 'intro';
+      for (const o of this.focus.mesh.userData.pilot) o.visible = !hide;
     }
     // соперник между камерой и игроком не должен закрывать обзор
     const cp = this.app.camera.position;

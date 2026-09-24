@@ -173,7 +173,7 @@ export function buildKartMesh(driver, { ghost = false, night = false, shadows = 
     add(g.lamp, tm, 0.5, 0.3, -1.05); add(g.lamp, tm, -0.5, 0.3, -1.05);
   }
 
-  root.userData = { body, wheels, head, wheel, flame, flameMat, shield, shieldMat, M };
+  root.userData = { body, wheels, head, wheel, flame, flameMat, shield, shieldMat, M, pilot: [torso, head, armL, armR] };
   return root;
 }
 

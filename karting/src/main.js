@@ -44,6 +44,7 @@ class App {
     this.camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 3000);
     this.camRig = new CameraRig(this.camera);
     this.camRig.mode = this.settings.camera;
+    this.applyCamCfg();
     this.hud = new HUD();
     this.audio = new AudioEngine();
     this.audio.setVolumes({ master: this.settings.master, music: this.settings.music, sfx: this.settings.sfx });
@@ -75,6 +76,11 @@ class App {
     this.showScreen('title');
     this.last = performance.now();
     requestAnimationFrame((t) => this.loop(t));
+  }
+
+  applyCamCfg() {
+    const s = this.settings;
+    Object.assign(this.camRig.cfg, { dist: s.camDist ?? 1, height: s.camHeight ?? 1, fov: s.camFov ?? 66, vib: s.camVib ?? 1 });
   }
 
   playerName() { return (($('playerName').value || '').trim().slice(0, 30)) || 'Игрок'; }
@@ -445,7 +451,10 @@ class App {
         if (qualityChanged && this.state === 'menu') this.startAttract(this.menu.trackId);
       });
     });
-    document.querySelectorAll('#scr-settings input[type=range]').forEach((r) => {
+    document.querySelectorAll('#scr-settings input[data-cam]').forEach((r) => {
+      r.addEventListener('input', () => { this.store.setSettings({ [r.dataset.cam]: Number(r.value) }); this.applyCamCfg(); });
+    });
+    document.querySelectorAll('#scr-settings input[data-vol]').forEach((r) => {
       r.addEventListener('input', () => {
         const key = r.dataset.vol;
         this.store.setSettings({ [key]: Number(r.value) });
@@ -563,7 +572,8 @@ class App {
   renderSettings() {
     const s = this.settings;
     document.querySelectorAll('#scr-settings .seg').forEach((seg) => this.syncSeg(seg, String(s[seg.dataset.set])));
-    document.querySelectorAll('#scr-settings input[type=range]').forEach((r) => (r.value = s[r.dataset.vol]));
+    document.querySelectorAll('#scr-settings input[data-vol]').forEach((r) => (r.value = s[r.dataset.vol]));
+    document.querySelectorAll('#scr-settings input[data-cam]').forEach((r) => (r.value = s[r.dataset.cam] ?? 1));
   }
 
   resultActions(list) {

@@ -12,7 +12,9 @@ export class CameraRig {
     this.yaw = 0;
     this.shakeAmt = 0;
     this.fov = 70;
-    this.mode = 0; // 0 — сверху (2.5D), 1 — погоня, 2 — погоня издалека
+    this.mode = 0; // 0 — сверху (2.5D), 1 — от третьего лица, 2 — издалека, 3 — с пилота
+    this.cfg = { dist: 1, height: 1, fov: 66, vib: 1 }; // пользовательские настройки камеры
+    this.t = 0;
     this.tv = { t: 0, kind: 0, anchor: new THREE.Vector3(), target: null, switchT: 0 };
     this.orbitA = 0;
   }
@@ -21,6 +23,7 @@ export class CameraRig {
 
   follow(dt, k, lookBack = false) {
     if (this.mode === 0) this.top(dt, k, 1, lookBack);
+    else if (this.mode === 3) this.cockpit(dt, k, lookBack);
     else this.chase(dt, k, lookBack);
   }
 
@@ -80,8 +83,9 @@ export class CameraRig {
     const yaw = lookBack ? this.yaw + Math.PI : this.yaw;
     const far = this.mode === 2;
     const vr = clamp(u / (k.cls.vmaxKmh / 3.6), 0, 1.2);
-    const dist = (far ? 5.6 : 3.7) + vr * (far ? 0.6 : 0.45) + (k.boostT > 0 ? 0.3 : 0);
-    const hgt = (far ? 2.4 : 1.5) + vr * 0.1;
+    const cf = this.cfg;
+    const dist = ((far ? 5.6 : 3.7) + vr * (far ? 0.6 : 0.45)) * cf.dist + (k.boostT > 0 ? 0.3 : 0);
+    const hgt = ((far ? 2.4 : 1.5) + vr * 0.1) * cf.height;
     this.camY = this.camY === undefined ? k.y : damp(this.camY, k.y, 6, dt);
     V.set(k.x - Math.sin(yaw) * dist, this.camY + hgt, k.z - Math.cos(yaw) * dist);
     this.pos.lerp(V, 1 - Math.exp(-dt * 14));
@@ -90,8 +94,32 @@ export class CameraRig {
     V.set(k.x + Math.sin(yaw) * ahead, this.camY + 0.7, k.z + Math.cos(yaw) * ahead);
     this.look.lerp(V, 1 - Math.exp(-dt * 16));
     this.roll = damp(this.roll || 0, clamp(-(k.w || 0) * u * 0.004, -0.05, 0.05), 5, dt);
-    const fovT = 66 + vr * 12 + (k.boostT > 0 ? 5 : 0);
+    this.vibrate(dt, k, vr, 0.012);
+    const fovT = cf.fov + vr * 12 + (k.boostT > 0 ? 5 : 0);
     this.fov = damp(this.fov, fovT, 3, dt);
+    this.rollOn = true;
+    this.apply(dt);
+  }
+
+  // у карта нет подвески: на скорости камера мелко дрожит, на поребриках сильнее
+  vibrate(dt, k, vr, amp) {
+    this.t += dt;
+    const a = amp * this.cfg.vib * vr * vr * (k.onKerb ? 2.5 : 1) * (k.surface === 2 ? 2 : 1);
+    this.pos.y += (Math.sin(this.t * 71) * 0.6 + Math.sin(this.t * 43.7) * 0.4) * a;
+    this.pos.x += Math.sin(this.t * 57.3) * a * 0.4;
+  }
+
+  // камера с пилота: глаза в шлеме, видно руль и передок
+  cockpit(dt, k, lookBack = false) {
+    const u = Math.abs(k.u), vr = clamp(u / (k.cls.vmaxKmh / 3.6), 0, 1.2);
+    const h = k.h + (lookBack ? Math.PI : 0);
+    const sh = Math.sin(k.h), ch = Math.cos(k.h);
+    this.pos.set(k.x - sh * 0.05, k.y + 1.13, k.z - ch * 0.05);
+    this.vibrate(dt, k, vr, 0.006);
+    this.look.set(k.x + Math.sin(h) * 14, k.y + 0.75, k.z + Math.cos(h) * 14);
+    this.yaw = k.h;
+    this.roll = damp(this.roll || 0, clamp(-(k.w || 0) * u * 0.006, -0.08, 0.08), 8, dt);
+    this.fov = damp(this.fov, this.cfg.fov + 6 + vr * 10, 3, dt);
     this.rollOn = true;
     this.apply(dt);
   }
