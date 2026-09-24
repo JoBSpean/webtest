@@ -39,7 +39,7 @@ export class Race {
     this.cls = CLASSES[cfg.cls || 'ok'];
     this.laps = this.mode === 'attract' ? 999 : cfg.laps || 3;
     this.diff = DIFFICULTY[cfg.difficulty || 'normal'];
-    this.playerOpts = { assist: app.settings.assist ?? 1, manual: app.settings.gearbox === 'manual' && !!this.cls.gears };
+    this.playerOpts = { assist: app.settings.assist ?? 1, manual: app.settings.gearbox === 'manual' && !!this.cls.gears, stab: true };
     this.aiOpts = { assist: 1, manual: false };
 
     this.scene = new THREE.Scene();
@@ -304,7 +304,7 @@ export class Race {
     else if (this.state === 'finished') this.camRig.orbit(dt, this.focus);
     else if (this.state !== 'intro' && this.focus) {
       if (inp.camera) this.camRig.mode = (this.camRig.mode + 1) % 3;
-      if (this.focus.onKerb && this.focus.u > 8) this.camRig.shake(0.04 + this.focus.u * 0.002);
+      if (this.focus.onKerb && this.focus.u > 8) this.camRig.shake(this.camRig.mode === 0 ? 0.04 + this.focus.u * 0.002 : 0.012 + this.focus.u * 0.0007);
       this.camRig.follow(dt, this.focus, inp.look);
     }
     // соперник между камерой и игроком не должен закрывать обзор

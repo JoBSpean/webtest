@@ -427,7 +427,7 @@ table.mini td small { display: block; color: var(--faint); font-size: 9px; }
     <div class="screen-head"><div><div class="eyebrow">Настройки</div><h2>Графика, руль и звук</h2></div></div>
     <div class="panel block options">
       <div class="opt"><span class="lbl">Графика</span><div class="seg" data-set="quality"><button data-v="low">Низкая</button><button data-v="medium">Средняя</button><button data-v="high">Высокая</button></div></div>
-      <div class="opt"><span class="lbl">Камера</span><div class="seg" data-set="camera"><button data-v="0">Сверху</button><button data-v="1">Погоня</button><button data-v="2">Издалека</button></div></div>
+      <div class="opt"><span class="lbl">Камера</span><div class="seg" data-set="camera"><button data-v="1">От третьего лица</button><button data-v="2">Издалека</button><button data-v="0">Сверху</button></div></div>
       <div class="opt"><span class="lbl">Помощь руля</span><div class="seg" data-set="assist"><button data-v="1">Полная</button><button data-v="0.5">Лёгкая</button><button data-v="0.15">Без помощи</button></div></div>
       <div class="opt"><span class="lbl">Коробка KZ2</span><div class="seg" data-set="gearbox"><button data-v="auto">Авто</button><button data-v="manual">Ручная</button></div></div>
       <div class="opt"><label for="set-master">Общая громкость</label><input type="range" id="set-master" min="0" max="1" step="0.05" data-vol="master"></div>
@@ -436,7 +436,7 @@ table.mini td small { display: block; color: var(--faint); font-size: 9px; }
       <div class="opt"><span class="lbl">Сенсорные кнопки</span><div class="seg" data-set="touch"><button data-v="auto">Авто</button><button data-v="on">Вкл</button><button data-v="off">Выкл</button></div></div>
       <div class="opt"><span class="lbl">Счётчик FPS</span><div class="seg" data-set="fps"><button data-v="false">Скрыть</button><button data-v="true">Показать</button></div></div>
     </div>
-    <p class="result-note">Помощь руля уменьшает максимальный угол колёс на скорости: с клавиатуры иначе легко перекрутить руль и сорвать передок. Без помощи — как настоящий карт: весь угол доступен всегда.</p>
+    <p class="result-note">Стабилизация включена всегда: карт не разворачивает, руль с клавиатуры набирается плавно, задняя ось не блокируется и не буксует. «Помощь руля» дополнительно ограничивает угол колёс на скорости и допустимый снос: «Полная» — самый спокойный карт, «Без помощи» — больше угла и скольжения, быстрее в умелых руках.</p>
     <div class="actions"><button class="btn primary" id="btn-settings-back">Готово</button></div>
   </div>
 </section>
@@ -451,7 +451,7 @@ table.mini td small { display: block; color: var(--faint); font-size: 9px; }
         <span class="k"><kbd>S</kbd><kbd>↓</kbd></span><span>Тормоз (заднего хода нет)</span>
         <span class="k"><kbd>A</kbd><kbd>D</kbd></span><span>Руль</span>
         <span class="k"><kbd>E</kbd><kbd>Q</kbd></span><span>Передача вверх / вниз (KZ2, ручная)</span>
-        <span class="k"><kbd>V</kbd></span><span>Камера: сверху / погоня / издалека</span>
+        <span class="k"><kbd>V</kbd></span><span>Камера: от третьего лица / издалека / сверху</span>
         <span class="k"><kbd>C</kbd></span><span>Взгляд назад</span>
         <span class="k"><kbd>R</kbd></span><span>Маршалы ставят на трассу (круг не засчитывается)</span>
         <span class="k"><kbd>X</kbd></span><span>Предмет (только фан-трассы)</span>
@@ -464,7 +464,7 @@ table.mini td small { display: block; color: var(--faint); font-size: 9px; }
       </div><h3 style="margin-top:16px">Телефон</h3><p class="note" style="margin:0">Газ нажат всегда. Слева — руль, справа — тормоз. Лучше держать телефон горизонтально.</p></div>
       <div class="panel block"><h3>Чем карт отличается от машины</h3><ul class="help-list">
         <li><b>Нет дифференциала.</b> Задние колёса на одной оси крутятся одинаково, поэтому в повороте карт подтормаживает. Чтобы он повернул свободно, внутреннее заднее колесо должно приподняться: это происходит при заметном угле руля.</li>
-        <li><b>Слики держат до предела и резко срываются.</b> Перекрутил руль — передок «плывёт», затормозил в дуге — задняя ось уходит в занос.</li>
+        <li><b>Слики держат до предела.</b> Перекрутил руль или затормозил в дуге — карт скользит и теряет время. Стабилизация не даёт развернуться, но медленный вход в поворот всё равно быстрее.</li>
         <li><b>Тормоз только сзади</b> у Junior и OK. Тормози по прямой до поворота. У KZ2 тормоза на обе оси.</li>
         <li><b>Поребрики</b> трясут и чуть снижают сцепление, <b>трава</b> резко тормозит.</li>
       </ul></div>

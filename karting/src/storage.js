@@ -5,7 +5,8 @@ const DEFAULTS = {
   quality: null,        // выбирается автоматически при первом запуске
   qualityAuto: true,    // снижать качество, если не хватает FPS
   master: 0.8, music: 0.45, sfx: 0.9,
-  camera: 0,            // 0 — сверху, 1 — погоня, 2 — погоня издалека
+  camera: 1,            // 0 — сверху, 1 — от третьего лица, 2 — третье лицо издалека
+  camVer: 2,
   touch: 'auto',
   assist: 1,            // помощь руля: 1 — полная, 0.5 — лёгкая, 0.15 — почти без неё
   gearbox: 'auto',      // KZ2: авто или ручная коробка
@@ -27,6 +28,8 @@ export class Store {
       if (raw) {
         const d = JSON.parse(raw);
         this.data.settings = { ...DEFAULTS, ...(d.settings || {}) };
+        // новая камера по умолчанию — от третьего лица
+        if (this.data.settings.camVer !== 2) { this.data.settings.camera = 1; this.data.settings.camVer = 2; }
         this.data.records = d.records || {};
         this.data.cupWins = d.cupWins || 0;
       }

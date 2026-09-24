@@ -120,15 +120,24 @@ export function shift(k, dir) {
 export function stepDynamics(k, inp, dt, opts) {
   const C = k.cls, m = C.mass, { L, a, b, h: hcg, T } = GEO;
   const assist = opts ? opts.assist : 1;
+  const stab = !!(opts && opts.stab);
+  // клавиатура даёт 0 или 1: руль набирается плавно, как у настоящего пилота, и быстрее возвращается
+  let steerIn = clamp(inp.steer, -1, 1);
+  if (stab) {
+    const cur = k.steerIn || 0;
+    const up = Math.abs(steerIn) > Math.abs(cur) && Math.sign(steerIn) === Math.sign(cur || steerIn);
+    k.steerIn = cur + clamp(steerIn - cur, -dt * (up ? 4.2 : 8), dt * (up ? 4.2 : 8));
+    steerIn = k.steerIn;
+  }
 
   // руль: привод с ограниченной скоростью поворота колёс
   let lim = steerLimit(k.u, assist);
   // контрруль при заносе разрешаем почти на полный угол
   if (k.slipR > 0.9 && inp.steer * k.w > 0) lim = Math.max(lim, 0.28);
-  const target = -clamp(inp.steer, -1, 1) * lim;
+  const target = -steerIn * lim;
   const rate = 3.4;
   k.delta += clamp(target - k.delta, -rate * dt, rate * dt);
-  k.steer = inp.steer;
+  k.steer = steerIn;
   // педали: короткая инерция привода газа и тормоза
   k.throttle += clamp(inp.throttle - k.throttle, -dt * 12, dt * 10);
   k.brake += clamp(inp.brake - k.brake, -dt * 14, dt * 9);
@@ -160,6 +169,14 @@ export function stepDynamics(k, inp, dt, opts) {
   const dirU = u > 0.05 ? 1 : 0;
   let Fxr = drive - brake * C.brakeR * C.mu * Fzr0 * dirU;
   let Fxf = -brake * C.brakeF * C.mu * Fzf0 * dirU;
+  if (stab) {
+    // ABS и контроль тяги: задняя ось не блокируется и не буксует, запас на поворот остаётся
+    const turnUse = Math.min(0.8, Math.abs(Math.atan2(v - b * w, ue)) / PEAK_R);
+    const room = capR * Math.sqrt(1 - turnUse * turnUse) * 0.95;
+    if (Fxr < -room) Fxr = -room;
+    if (Fxr > room) Fxr = room;
+    if (Fxf < -capF * 0.95) Fxf = -capF * 0.95;
+  }
   k.lock = false; k.spin = false;
   let latR = 1, latF = 1;
   if (Math.abs(Fxr) > capR) {
@@ -196,6 +213,17 @@ export function stepDynamics(k, inp, dt, opts) {
     nw += ((nu * Math.tan(k.delta)) / L - nw) * Math.min(1, dt * 12 * kk);
   }
   if (nu < 0) { nu = Math.max(nu, -1.5); if (throttle <= 0) nu *= Math.exp(-dt * 6); }
+  if (stab && nu > 3 && !spinning) {
+    // стабилизация: угол заноса и рыскание не выходят за предел, карт не разворачивает
+    const betaMax = 0.13 + 0.12 * (1 - assist);
+    const vLim = Math.tan(betaMax) * nu;
+    if (Math.abs(nv) > vLim) nv += (Math.sign(nv) * vLim - nv) * Math.min(1, dt * 10);
+    // рыскание тянется к устойчивому повороту для текущего угла руля: без раскачки на скорости
+    const wss = (nu * Math.tan(k.delta)) / (L * (1 + (nu / 24) ** 2));
+    nw += (wss - nw) * Math.min(1, dt * 2.2 * (0.6 + 0.4 * assist));
+    const wMax = (muS * G * 1.15) / nu + 0.15;
+    if (Math.abs(nw) > wMax) nw += (Math.sign(nw) * wMax - nw) * Math.min(1, dt * 12);
+  }
   if (spinning) { k.spinT -= dt; nw += (k.spinDir || 1) * 9 * dt * (k.spinT > 0.4 ? 1 : 0); }
   k.ax += (Fx / m - k.ax) * Math.min(1, dt * 12);
   k.u = nu; k.v = nv; k.w = nw;

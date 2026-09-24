@@ -64,28 +64,35 @@ export class CameraRig {
       this.look.set(k.x + Math.sin(k.h) * 4, k.y, k.z + Math.cos(k.h) * 4);
       return;
     }
-    const [dist, hgt] = this.mode === 2 ? [7.4, 3.1] : [5.4, 2.25];
+    const [dist, hgt] = this.mode === 2 ? [5.6, 2.4] : [3.7, 1.5];
     this.pos.set(k.x - Math.sin(k.h) * dist, k.y + hgt, k.z - Math.cos(k.h) * dist);
-    this.look.set(k.x + Math.sin(k.h) * 3, k.y + 1, k.z + Math.cos(k.h) * 3);
+    this.look.set(k.x + Math.sin(k.h) * 4, k.y + 0.7, k.z + Math.cos(k.h) * 4);
   }
 
+  // камера от третьего лица, как в обычных гоночных играх: низко за картом,
+  // с пружинной задержкой по курсу, наклоном горизонта в повороте и FOV от скорости
   chase(dt, k, lookBack = false) {
-    const moving = Math.abs(k.u) > 3 && k.u > 0;
+    const u = Math.abs(k.u);
+    const moving = u > 3 && k.u > 0;
     const velYaw = moving ? Math.atan2(k.vx, k.vz) : k.h;
-    const target = k.h + wrapAngle(velYaw - k.h) * 0.6 + (k.spinT > 0 ? 0 : 0);
-    this.yaw = dampAngle(this.yaw, k.spinT > 0 ? this.yaw : target, 4.5, dt);
+    const target = k.h + wrapAngle(velYaw - k.h) * 0.45;
+    this.yaw = dampAngle(this.yaw, k.spinT > 0 ? this.yaw : target, 5.5, dt);
     const yaw = lookBack ? this.yaw + Math.PI : this.yaw;
-    const [dist, hgt] = this.mode === 2 ? [7.4, 3.1] : [5.4, 2.25];
-    const boostPull = k.boostT > 0 ? 0.35 : 0;
-    const d = dist + boostPull + clamp(Math.abs(k.u) / 30, 0, 1.3) * 0.4;
-    V.set(k.x - Math.sin(yaw) * d, k.y + hgt, k.z - Math.cos(yaw) * d);
-    const kk = 1 - Math.exp(-dt * 22);
-    this.pos.lerp(V, kk);
-    this.pos.y = Math.max(this.pos.y, k.y + 1.2);
-    V.set(k.x + Math.sin(yaw) * 3.2, k.y + 1.0, k.z + Math.cos(yaw) * 3.2);
-    this.look.lerp(V, 1 - Math.exp(-dt * 20));
-    const fovT = 67 + clamp(Math.abs(k.u) / (k.cls.vmaxKmh / 3.6), 0, 1.25) * 7 + (k.boostT > 0 ? 5 : 0);
-    this.fov = damp(this.fov, fovT, 4, dt);
+    const far = this.mode === 2;
+    const vr = clamp(u / (k.cls.vmaxKmh / 3.6), 0, 1.2);
+    const dist = (far ? 5.6 : 3.7) + vr * (far ? 0.6 : 0.45) + (k.boostT > 0 ? 0.3 : 0);
+    const hgt = (far ? 2.4 : 1.5) + vr * 0.1;
+    this.camY = this.camY === undefined ? k.y : damp(this.camY, k.y, 6, dt);
+    V.set(k.x - Math.sin(yaw) * dist, this.camY + hgt, k.z - Math.cos(yaw) * dist);
+    this.pos.lerp(V, 1 - Math.exp(-dt * 14));
+    this.pos.y = Math.max(this.pos.y, k.y + 1.0);
+    const ahead = 4 + vr * 3;
+    V.set(k.x + Math.sin(yaw) * ahead, this.camY + 0.7, k.z + Math.cos(yaw) * ahead);
+    this.look.lerp(V, 1 - Math.exp(-dt * 16));
+    this.roll = damp(this.roll || 0, clamp(-(k.w || 0) * u * 0.004, -0.05, 0.05), 5, dt);
+    const fovT = 66 + vr * 12 + (k.boostT > 0 ? 5 : 0);
+    this.fov = damp(this.fov, fovT, 3, dt);
+    this.rollOn = true;
     this.apply(dt);
   }
 
@@ -172,6 +179,7 @@ export class CameraRig {
       this.shakeAmt *= Math.exp(-dt * 7);
     }
     c.lookAt(this.look);
+    if (this.rollOn) { c.rotateZ(this.roll || 0); this.rollOn = false; }
     if (Math.abs(c.fov - this.fov) > 0.01) { c.fov = this.fov; c.updateProjectionMatrix(); }
   }
 }
