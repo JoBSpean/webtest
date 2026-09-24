@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Апекс Картинг</title>
+<meta name="description" content="Аркадные 3D-гонки на картах прямо в браузере: три трассы, восемь пилотов, заносы с мини-турбо, предметы, кубок и заезды на время с призраком.">
+<meta name="theme-color" content="#0f1115">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f1115'/%3E%3Cpath d='M14 46 30 14h8l12 32h-9l-2.5-7H25l-3 7z' fill='%23ffd000'/%3E%3Cpath d='M27.5 32h8L32 21z' fill='%230f1115'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Onest:wght@400;500;600;800&family=Unbounded:wght@600;800;900&display=swap">
+<style>
+:root {
+  color-scheme: dark;
+  --tarmac: #0f1115;
+  --panel: rgba(15, 17, 22, 0.8);
+  --panel-solid: #171a21;
+  --raise: #20242d;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.22);
+  --chalk: #f2f3f5;
+  --muted: #9aa1ad;
+  --signal: #ffd000;
+  --signal-ink: #16130a;
+  --purple: #b36bff;
+  --green: #3ddc84;
+  --red: #ff3b30;
+  --kerb: #e0322b;
+  --display: "Unbounded", "Arial Black", "Segoe UI", sans-serif;
+  --ui: "Onest", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: max(16px, env(safe-area-inset-left, 0px));
+  --gutter-r: max(16px, env(safe-area-inset-right, 0px));
+  --top: max(14px, env(safe-area-inset-top, 0px));
+  --bottom: max(14px, env(safe-area-inset-bottom, 0px));
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--tarmac);
+  color: var(--chalk);
+  font: 15px/1.45 var(--ui);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+#game { position: fixed; inset: 0; display: block; width: 100%; height: 100%; outline: none; }
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; }
+button:focus-visible, [tabindex]:focus-visible, input:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+/* ---------- экраны меню ---------- */
+.screen {
+  position: fixed; inset: 0;
+  padding: var(--top) var(--gutter-r) var(--bottom) var(--gutter);
+  display: flex; flex-direction: column;
+  overflow-y: auto; overflow-x: hidden;
+  z-index: 20;
+}
+.screen.shade { background: linear-gradient(90deg, rgba(10,11,15,0.92) 0%, rgba(10,11,15,0.72) 42%, rgba(10,11,15,0.1) 75%); }
+.screen.dim { background: rgba(8, 9, 12, 0.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+
+.logo { display: flex; flex-direction: column; gap: 2px; margin: 4vh 0 3vh; }
+.logo-word {
+  font: 900 clamp(52px, 9vw, 112px)/0.9 var(--display);
+  letter-spacing: -0.02em;
+  transform: skewX(-9deg);
+  transform-origin: left bottom;
+  color: var(--chalk);
+  display: flex; align-items: flex-end; gap: 0.04em;
+}
+.logo-word .apex-a { color: var(--signal); }
+.logo-sub {
+  font: 600 clamp(12px, 1.4vw, 15px)/1 var(--display);
+  letter-spacing: 0.5em; text-transform: uppercase; color: var(--muted);
+  display: flex; align-items: center; gap: 12px; padding-left: 4px;
+}
+.kerb { display: inline-block; width: 64px; height: 8px; background: repeating-linear-gradient(90deg, var(--kerb) 0 12px, #f2f2f2 12px 24px); transform: skewX(-30deg); }
+
+.menu-list { display: flex; flex-direction: column; gap: 6px; width: min(460px, 100%); }
+.menu-btn {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px;
+  text-align: left; padding: 14px 18px 14px 20px;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--line); border-radius: 4px;
+  cursor: pointer; transition: background .15s, border-color .15s, transform .15s;
+  position: relative;
+}
+.menu-btn::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; background: transparent; transition: background .15s; }
+.menu-btn:hover, .menu-btn:focus-visible, .menu-btn.focus { background: rgba(255,255,255,0.09); border-color: var(--line-strong); transform: translateX(4px); outline: none; }
+.menu-btn:hover::before, .menu-btn:focus-visible::before, .menu-btn.focus::before { background: var(--signal); }
+.menu-btn .t { font: 800 clamp(17px, 2vw, 21px)/1.1 var(--ui); text-transform: uppercase; letter-spacing: 0.02em; }
+.menu-btn .h { font: 500 13px/1.2 var(--ui); color: var(--muted); }
+.menu-btn.primary { background: var(--signal); color: var(--signal-ink); border-color: var(--signal); }
+.menu-btn.primary .h { color: rgba(22,19,10,0.7); }
+.menu-btn.primary:hover, .menu-btn.primary:focus-visible, .menu-btn.primary.focus { background: #ffe04d; }
+
+.keys-hint { margin-top: auto; padding-top: 24px; display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--muted); font-size: 13px; }
+.keys-hint span { display: inline-flex; align-items: center; gap: 6px; }
+kbd {
+  font: 700 11px/1 var(--mono); color: var(--chalk);
+  padding: 4px 6px; min-width: 22px; text-align: center;
+  border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; background: rgba(255,255,255,0.06);
+}
+.onair {
+  position: fixed; right: var(--gutter-r); bottom: var(--bottom); z-index: 21;
+  display: flex; align-items: stretch; font: 700 12px/1 var(--ui); text-transform: uppercase; letter-spacing: 0.08em;
+  pointer-events: none;
+}
+.onair .live { background: var(--red); color: #fff; padding: 8px 10px; display: flex; align-items: center; gap: 6px; }
+.onair .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #fff; animation: blink 1.2s infinite; }
+.onair .what { background: rgba(10,11,15,0.82); padding: 8px 12px; color: var(--chalk); }
+@keyframes blink { 50% { opacity: 0.2; } }
+
+/* общие панели */
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.screen-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.eyebrow { font: 700 11px/1 var(--ui); letter-spacing: 0.18em; text-transform: uppercase; color: var(--signal); margin-bottom: 8px; }
+h2 { margin: 0; font: 800 clamp(26px, 3.4vw, 40px)/1.05 var(--display); letter-spacing: -0.01em; text-wrap: balance; }
+h3 { margin: 0 0 10px; font: 700 12px/1 var(--ui); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+
+.setup { width: min(1180px, 100%); margin: 0 auto; padding-block: 2vh; display: flex; flex-direction: column; flex: 1; }
+.setup-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 860px) { .setup-grid { grid-template-columns: 1fr; } }
+.setup-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.block { padding: 16px; }
+
+.tracks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 520px) { .tracks { grid-template-columns: 1fr; } }
+.track-card {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px; text-align: left; cursor: pointer;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 5px; transition: border-color .15s, background .15s;
+}
+.track-card canvas { width: 100%; aspect-ratio: 4 / 3; max-width: 100%; border-radius: 3px; background: #0b0d11; display: block; }
+.track-card .nm { font: 800 15px/1.15 var(--ui); }
+.track-card .meta { display: flex; justify-content: space-between; gap: 8px; font: 500 12px/1.2 var(--mono); color: var(--muted); }
+.track-card:hover { background: rgba(255,255,255,0.07); }
+.track-card[aria-pressed="true"] { border-color: var(--signal); background: rgba(255, 208, 0, 0.07); box-shadow: inset 0 0 0 1px var(--signal); }
+.track-card[disabled] { cursor: default; opacity: 1; }
+.track-desc { margin: 12px 0 0; color: var(--muted); font-size: 14px; max-width: 62ch; }
+.cup-stages { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font: 700 13px/1 var(--ui); margin-top: 10px; color: var(--muted); }
+.cup-stages b { color: var(--chalk); }
+
+.drivers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 420px) { .drivers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.drv {
+  display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 8px; padding: 8px; cursor: pointer; text-align: left;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 5px;
+}
+.drv .num { width: 34px; height: 26px; display: grid; place-items: center; font: 800 13px/1 var(--display); border-radius: 3px; }
+.drv .nm { font: 700 14px/1.1 var(--ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drv[aria-pressed="true"] { border-color: var(--signal); box-shadow: inset 0 0 0 1px var(--signal); background: rgba(255,208,0,0.07); }
+.drv:hover { background: rgba(255,255,255,0.07); }
+.drv-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; margin-top: 14px; align-items: start; }
+@media (max-width: 420px) { .drv-detail { grid-template-columns: 1fr; } }
+.drv-bio { color: var(--muted); font-size: 14px; }
+.stat { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: 10px; font: 600 12px/1 var(--ui); color: var(--muted); }
+.stat + .stat { margin-top: 7px; }
+.pips { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; }
+.pips i { height: 8px; background: rgba(255,255,255,0.1); transform: skewX(-20deg); }
+.pips i.on { background: var(--signal); }
+
+.options { display: grid; gap: 14px; }
+.opt { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 12px; }
+@media (max-width: 420px) { .opt { grid-template-columns: 1fr; gap: 6px; } }
+.opt > label, .opt > .lbl { font: 600 13px/1.2 var(--ui); color: var(--muted); }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; background: rgba(0,0,0,0.3); padding: 3px; border-radius: 5px; border: 1px solid var(--line); }
+.seg button { flex: 1 1 auto; min-width: 44px; padding: 8px 10px; border: 0; border-radius: 3px; background: transparent; cursor: pointer; font: 700 13px/1 var(--ui); color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--chalk); color: var(--tarmac); }
+.seg button:hover:not([aria-pressed="true"]) { color: var(--chalk); background: rgba(255,255,255,0.06); }
+input[type="range"] { width: 100%; accent-color: var(--signal); }
+
+.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; justify-content: flex-end; }
+.btn {
+  padding: 14px 22px; border-radius: 4px; border: 1px solid var(--line-strong); background: rgba(255,255,255,0.06); cursor: pointer;
+  font: 800 15px/1 var(--ui); text-transform: uppercase; letter-spacing: 0.04em;
+}
+.btn:hover { background: rgba(255,255,255,0.12); }
+.btn.primary { background: var(--signal); color: var(--signal-ink); border-color: var(--signal); }
+.btn.primary:hover { background: #ffe04d; }
+.btn.focus { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+/* справка */
+.help-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.ctl { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; align-items: center; font-size: 14px; }
+.ctl .k { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.help-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; font-size: 14px; color: var(--muted); }
+.help-list b { color: var(--chalk); }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+
+/* результаты */
+.results { width: min(880px, 100%); margin: auto; padding-block: 2vh; }
+.table-wrap { overflow-x: auto; }
+table.res { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.res th { font: 700 11px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.res td { padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.res td.p { font: 800 18px/1 var(--display); width: 48px; }
+table.res td.mono, table.res th.mono { font-family: var(--mono); text-align: right; }
+table.res tr.me td { background: rgba(255,208,0,0.1); }
+table.res tr.me td.p { color: var(--signal); }
+.chip { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; }
+.chip i { width: 6px; height: 20px; border-radius: 1px; }
+.purple { color: var(--purple); }
+.green { color: var(--green); }
+.est { color: var(--muted); font-style: italic; }
+.pts { color: var(--signal); font-weight: 800; }
+.result-note { margin: 14px 0 0; color: var(--muted); font-size: 14px; }
+.podium { display: grid; grid-template-columns: 1fr 1.15fr 1fr; align-items: end; gap: 8px; margin: 8px 0 18px; }
+.podium > div { text-align: center; padding: 12px 8px; border-radius: 4px 4px 0 0; background: rgba(255,255,255,0.05); border: 1px solid var(--line); border-bottom: 0; }
+.podium .p1 { min-height: 140px; border-color: var(--signal); }
+.podium .p2 { min-height: 110px; }
+.podium .p3 { min-height: 90px; }
+.podium .place { font: 900 28px/1 var(--display); }
+.podium .p1 .place { color: var(--signal); }
+.podium .who { font: 700 14px/1.2 var(--ui); margin-top: 6px; }
+
+/* ---------- HUD ---------- */
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; font-variant-numeric: tabular-nums; }
+.hud-pos { position: absolute; left: var(--gutter); top: var(--top); display: flex; flex-direction: column; gap: 4px; }
+.pos-big { display: flex; align-items: flex-start; gap: 2px; font: 900 64px/0.9 var(--display); transform: skewX(-8deg); text-shadow: 0 3px 0 rgba(0,0,0,0.35); }
+.pos-big small { font: 800 22px/1 var(--display); color: #c9ced6; margin-top: 6px; }
+.lap-line { font: 700 13px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: #c9ced6; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
+.lap-line b { color: var(--chalk); font: 800 17px/1 var(--mono); letter-spacing: 0; }
+
+.tower { position: absolute; left: var(--gutter); top: calc(var(--top) + 104px); width: 196px; background: rgba(10,11,15,0.72); border-radius: 4px; overflow: hidden; }
+.tower .row { display: grid; grid-template-columns: 24px 4px 1fr auto; gap: 7px; align-items: center; padding: 4px 8px 4px 0; font: 600 13px/1.25 var(--ui); transition: background .2s; }
+.tower .row + .row { border-top: 1px solid rgba(255,255,255,0.05); }
+.tower .row .p { text-align: center; font: 800 12px/1 var(--mono); color: var(--muted); }
+.tower .row i { height: 14px; border-radius: 1px; }
+.tower .row .g { font: 600 12px/1 var(--mono); color: var(--muted); }
+.tower .row.me { background: var(--signal); color: var(--signal-ink); }
+.tower .row.me .p, .tower .row.me .g { color: var(--signal-ink); }
+.tower .row.done .g { color: var(--green); }
+
+.item-slot { position: absolute; right: var(--gutter-r); top: var(--top); width: 84px; height: 84px; border-radius: 8px; background: rgba(10,11,15,0.72); border: 2px solid rgba(255,255,255,0.18); display: grid; place-items: center; }
+.item-slot svg { width: 58px; height: 58px; }
+.item-slot.spin svg { animation: pop .12s ease-out; }
+.item-slot.ready { border-color: var(--signal); }
+.item-slot .cnt { position: absolute; right: -6px; bottom: -6px; background: var(--signal); color: var(--signal-ink); font: 800 13px/1 var(--mono); padding: 4px 6px; border-radius: 3px; }
+.item-slot .key { position: absolute; left: 50%; bottom: -22px; transform: translateX(-50%); font: 700 10px/1 var(--mono); color: #c9ced6; white-space: nowrap; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
+@keyframes pop { from { transform: scale(0.6); } }
+
+.fps { position: absolute; right: calc(var(--gutter-r) + 96px); top: var(--top); font: 600 11px/1 var(--mono); color: var(--muted); background: rgba(0,0,0,0.4); padding: 4px 6px; border-radius: 3px; }
+
+/* приборная панель в духе картингового логгера */
+.dash {
+  position: absolute; right: var(--gutter-r); bottom: var(--bottom);
+  width: 300px; padding: 10px 12px 12px; border-radius: 10px;
+  background: linear-gradient(180deg, rgba(22,24,30,0.92), rgba(10,11,14,0.92));
+  border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+}
+.leds { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; margin-bottom: 8px; }
+.leds i { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.08); }
+.leds i.on.g { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.leds i.on.y { background: var(--signal); box-shadow: 0 0 6px var(--signal); }
+.leds i.on.r { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.leds.shift i.on { animation: blink .12s steps(2) infinite; }
+.dash-main { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: end; }
+.speed { font: 800 54px/0.85 var(--mono); letter-spacing: -0.04em; min-width: 3ch; text-align: right; }
+.speed-u { font: 700 10px/1 var(--ui); color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; margin-top: 6px; text-align: right; }
+.laptimes { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.lt-now { font: 700 22px/1 var(--mono); }
+.lt-delta { font: 700 13px/1 var(--mono); min-height: 13px; }
+.lt-delta.neg { color: var(--green); }
+.lt-delta.pos { color: var(--red); }
+.lt-best { font: 600 11px/1 var(--mono); color: var(--muted); }
+.lt-best b { color: var(--chalk); font-weight: 600; }
+.drift { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-top: 10px; height: 5px; }
+.drift i { background: rgba(255,255,255,0.08); border-radius: 2px; position: relative; overflow: hidden; }
+.drift i b { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); }
+.drift i:nth-child(1) b { background: #59b3ff; }
+.drift i:nth-child(2) b { background: #ff8c1f; }
+.drift i:nth-child(3) b { background: var(--purple); }
+
+.minimap { position: absolute; left: var(--gutter); bottom: var(--bottom); width: 170px; height: 170px; border-radius: 8px; background: rgba(10,11,15,0.55); }
+
+.lights { position: absolute; left: 50%; top: calc(var(--top) + 8px); transform: translateX(-50%); display: flex; gap: 10px; padding: 10px 14px; background: #0b0b0d; border-radius: 10px; border: 1px solid #25252a; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+.lights .col { display: flex; flex-direction: column; gap: 6px; }
+.lights .col i { width: 26px; height: 26px; border-radius: 50%; background: #2a0707; box-shadow: inset 0 -3px 6px rgba(0,0,0,0.6); }
+.lights .col.on i { background: radial-gradient(circle at 40% 35%, #ff8a80, var(--red) 55%, #b3140c); box-shadow: 0 0 18px rgba(255,59,48,0.8); }
+
+.msg-wrap { position: absolute; left: 0; right: 0; top: 28%; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-inline: 16px; }
+.msg { font: 900 clamp(26px, 5vw, 52px)/1 var(--display); transform: skewX(-8deg); text-align: center; text-shadow: 0 4px 0 rgba(0,0,0,0.35), 0 0 30px rgba(0,0,0,0.3); animation: msgIn .35s cubic-bezier(.2,1.4,.4,1); text-wrap: balance; }
+.msg.small { font-size: clamp(18px, 2.6vw, 26px); }
+.msg.good { color: var(--green); }
+.msg.bad { color: #ff8a80; }
+.msg.final { color: var(--signal); }
+.msg.go { color: var(--green); font-size: clamp(40px, 8vw, 84px); }
+.msg.out { animation: msgOut .3s forwards; }
+@keyframes msgIn { from { transform: skewX(-8deg) scale(1.6); opacity: 0; } }
+@keyframes msgOut { to { transform: skewX(-8deg) translateY(-14px); opacity: 0; } }
+.lapflash { font: 800 clamp(20px, 3vw, 30px)/1 var(--mono); padding: 8px 14px; border-radius: 4px; background: rgba(10,11,15,0.78); animation: msgIn .3s; }
+.lapflash small { display: block; font: 700 11px/1 var(--ui); letter-spacing: 0.16em; text-transform: uppercase; margin-bottom: 6px; color: var(--muted); }
+.lapflash.record, .lapflash.fastest { color: var(--purple); }
+.lapflash.pb { color: var(--green); }
+.wrongway { position: absolute; left: 50%; top: 16%; transform: translateX(-50%); background: var(--red); color: #fff; padding: 10px 18px; font: 900 clamp(16px, 2.4vw, 24px)/1 var(--display); border-radius: 4px; animation: blink .6s infinite; white-space: nowrap; }
+.speedlines { position: absolute; inset: 0; opacity: 0; transition: opacity .25s; background:
+  repeating-conic-gradient(from 0deg at 50% 55%, rgba(255,255,255,0.0) 0deg 3deg, rgba(255,255,255,0.09) 3.4deg 3.8deg, rgba(255,255,255,0) 4.2deg 9deg);
+  -webkit-mask: radial-gradient(circle at 50% 55%, transparent 28%, #000 70%); mask: radial-gradient(circle at 50% 55%, transparent 28%, #000 70%); }
+.speedlines.on { opacity: 1; animation: lines .15s steps(2) infinite; }
+@keyframes lines { 50% { transform: scale(1.03) rotate(1deg); } }
+.hitflash { position: absolute; inset: 0; background: radial-gradient(circle, transparent 50%, rgba(255,40,20,0.35)); opacity: 0; transition: opacity .4s; }
+.hitflash.on { opacity: 1; transition: none; }
+
+/* сенсорное управление */
+#touch { position: fixed; inset: 0; z-index: 12; pointer-events: none; }
+#touch button {
+  pointer-events: auto; position: absolute; border: 2px solid rgba(255,255,255,0.28); background: rgba(10,11,15,0.45);
+  color: #fff; border-radius: 50%; font: 800 12px/1 var(--ui); letter-spacing: 0.04em; text-transform: uppercase;
+  display: grid; place-items: center; touch-action: none; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+#touch button.on { background: rgba(255,208,0,0.4); border-color: var(--signal); }
+#touch .tl { left: var(--gutter); bottom: calc(var(--bottom) + 10px); width: 84px; height: 84px; font-size: 28px; }
+#touch .tr { left: calc(var(--gutter) + 96px); bottom: calc(var(--bottom) + 10px); width: 84px; height: 84px; font-size: 28px; }
+#touch .td { right: var(--gutter-r); bottom: calc(var(--bottom) + 10px); width: 96px; height: 96px; font-size: 13px; }
+#touch .tb { right: calc(var(--gutter-r) + 108px); bottom: calc(var(--bottom) + 4px); width: 66px; height: 66px; font-size: 10px; }
+#touch .ti { right: calc(var(--gutter-r) + 22px); bottom: calc(var(--bottom) + 120px); width: 66px; height: 66px; font-size: 10px; }
+#touch .tp { right: calc(var(--gutter-r) + 96px); top: var(--top); width: 44px; height: 44px; border-radius: 8px; font-size: 14px; }
+body.touch-on .dash { bottom: auto; top: var(--top); right: auto; left: 50%; transform: translateX(-50%) scale(0.72); transform-origin: top center; }
+body.touch-on .lights { top: calc(var(--top) + 104px); }
+#touch .rotate-hint { display: none; }
+@media (orientation: portrait) {
+  body.touch-on .dash { left: auto; right: var(--gutter-r); top: calc(var(--top) + 96px); transform: scale(0.62); transform-origin: top right; }
+  body.touch-on .lights { top: 30%; }
+  #touch .rotate-hint {
+    display: block; position: absolute; left: 50%; bottom: calc(var(--bottom) + 190px); transform: translateX(-50%);
+    width: max-content; max-width: calc(100% - 32px); padding: 10px 14px; border-radius: 6px; text-align: center;
+    background: rgba(10,11,15,0.82); font: 600 13px/1.3 var(--ui); color: var(--chalk);
+    animation: hintOut .5s 5s forwards;
+  }
+}
+@keyframes hintOut { to { opacity: 0; visibility: hidden; } }
+body.touch-on .minimap { display: none; }
+body.touch-on .item-slot .key { display: none; }
+
+@media (max-width: 700px), (max-height: 520px) {
+  .tower { display: none; }
+  .pos-big { font-size: 46px; }
+  .dash { transform: scale(0.8); transform-origin: bottom right; }
+  .minimap { width: 120px; height: 120px; }
+}
+@media (max-height: 460px) { .minimap { display: none; } }
+
+/* загрузка */
+#loading { position: fixed; inset: 0; z-index: 50; background: var(--tarmac); display: grid; place-items: center; }
+#loading .bar { width: 180px; height: 6px; margin-top: 18px; background: repeating-linear-gradient(90deg, var(--kerb) 0 14px, #f2f2f2 14px 28px); background-size: 28px 6px; animation: kerbs .5s linear infinite; transform: skewX(-30deg); }
+@keyframes kerbs { to { background-position: 28px 0; } }
+#loading .msg-l { font: 700 12px/1 var(--ui); letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); text-align: center; }
+.noscript { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .speedlines.on, .msg, .lapflash, #loading .bar, .onair .live::before, .wrongway, .leds.shift i.on { animation: none !important; }
+  .menu-btn:hover { transform: none; }
+}
+</style>
+</head>
+<body>
+<canvas id="game" tabindex="-1" aria-label="Игровая сцена"></canvas>
+
+<div id="loading" role="status">
+  <div>
+    <div class="logo-word" style="font-size:44px"><span class="apex-a">А</span>ПЕКС</div>
+    <div class="bar" aria-hidden="true"></div>
+    <p class="msg-l" id="loading-text">Прогреваем шины</p>
+  </div>
+</div>
+
+<!-- Главное меню -->
+<section id="scr-title" class="screen shade" hidden>
+  <div class="logo">
+    <div class="logo-word" aria-label="Апекс"><span class="apex-a">А</span>ПЕКС</div>
+    <div class="logo-sub"><span class="kerb" aria-hidden="true"></span>Картинг</div>
+  </div>
+  <nav class="menu-list" aria-label="Главное меню">
+    <button class="menu-btn primary" data-go="race"><span class="t">Быстрая гонка</span><span class="h">до 8 пилотов</span></button>
+    <button class="menu-btn" data-go="cup"><span class="t">Кубок Апекса</span><span class="h">3 этапа, очки</span></button>
+    <button class="menu-btn" data-go="tt"><span class="t">Заезд на время</span><span class="h">с призраком</span></button>
+    <button class="menu-btn" data-go="settings"><span class="t">Настройки</span><span class="h">графика, звук</span></button>
+    <button class="menu-btn" data-go="help"><span class="t">Как играть</span><span class="h">управление</span></button>
+  </nav>
+  <div class="keys-hint" aria-label="Управление">
+    <span><kbd>W</kbd><kbd>↑</kbd> газ</span>
+    <span><kbd>A</kbd><kbd>D</kbd> руль</span>
+    <span><kbd>Пробел</kbd> занос</span>
+    <span><kbd>E</kbd> предмет</span>
+    <span><kbd>Esc</kbd> пауза</span>
+  </div>
+</section>
+<div class="onair" id="onair" hidden><span class="live">Эфир</span><span class="what" id="onair-what">Солнечная долина</span></div>
+
+<!-- Подготовка к заезду -->
+<section id="scr-setup" class="screen dim" hidden>
+  <div class="setup">
+    <div class="screen-head">
+      <div>
+        <div class="eyebrow" id="setup-eyebrow">Быстрая гонка</div>
+        <h2 id="setup-title">Выберите трассу и пилота</h2>
+      </div>
+    </div>
+    <div class="setup-grid">
+      <div class="setup-col">
+        <div class="panel block">
+          <h3 id="tracks-label">Трасса</h3>
+          <div class="tracks" id="track-list" role="group" aria-labelledby="tracks-label"></div>
+          <p class="track-desc" id="track-desc"></p>
+          <div class="cup-stages" id="cup-stages" hidden></div>
+        </div>
+      </div>
+      <div class="setup-col">
+        <div class="panel block">
+          <h3 id="drivers-label">Пилот</h3>
+          <div class="drivers" id="driver-list" role="group" aria-labelledby="drivers-label"></div>
+          <div class="drv-detail">
+            <div id="driver-stats"></div>
+            <p class="drv-bio" id="driver-bio"></p>
+          </div>
+        </div>
+        <div class="panel block options">
+          <div class="opt" id="opt-diff"><span class="lbl" id="lbl-diff">Сложность</span><div class="seg" data-opt="difficulty" role="group" aria-labelledby="lbl-diff"><button data-v="easy">Лёгкий</button><button data-v="normal">Средний</button><button data-v="hard">Сложный</button></div></div>
+          <div class="opt" id="opt-laps"><span class="lbl" id="lbl-laps">Круги</span><div class="seg" data-opt="laps" role="group" aria-labelledby="lbl-laps"><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="5">5</button></div></div>
+          <div class="opt" id="opt-opp"><span class="lbl" id="lbl-opp">Соперники</span><div class="seg" data-opt="opponents" role="group" aria-labelledby="lbl-opp"><button data-v="3">3</button><button data-v="5">5</button><button data-v="7">7</button></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" data-go="title">Назад</button>
+      <button class="btn primary" id="btn-start">На старт</button>
+    </div>
+  </div>
+</section>
+
+<!-- Настройки -->
+<section id="scr-settings" class="screen dim" hidden>
+  <div class="setup" style="width:min(640px,100%)">
+    <div class="screen-head"><div><div class="eyebrow">Настройки</div><h2>Графика и звук</h2></div></div>
+    <div class="panel block options">
+      <div class="opt"><span class="lbl" id="lbl-q">Графика</span><div class="seg" data-set="quality" role="group" aria-labelledby="lbl-q"><button data-v="low">Низкая</button><button data-v="medium">Средняя</button><button data-v="high">Высокая</button></div></div>
+      <div class="opt"><label for="set-master">Общая громкость</label><input type="range" id="set-master" min="0" max="1" step="0.05" data-vol="master"></div>
+      <div class="opt"><label for="set-music">Музыка</label><input type="range" id="set-music" min="0" max="1" step="0.05" data-vol="music"></div>
+      <div class="opt"><label for="set-sfx">Эффекты</label><input type="range" id="set-sfx" min="0" max="1" step="0.05" data-vol="sfx"></div>
+      <div class="opt"><span class="lbl" id="lbl-cam">Камера</span><div class="seg" data-set="camera" role="group" aria-labelledby="lbl-cam"><button data-v="0">Ближе</button><button data-v="1">Дальше</button></div></div>
+      <div class="opt"><span class="lbl" id="lbl-touch">Сенсорные кнопки</span><div class="seg" data-set="touch" role="group" aria-labelledby="lbl-touch"><button data-v="auto">Авто</button><button data-v="on">Вкл</button><button data-v="off">Выкл</button></div></div>
+      <div class="opt"><span class="lbl" id="lbl-fps">Счётчик FPS</span><div class="seg" data-set="fps" role="group" aria-labelledby="lbl-fps"><button data-v="false">Скрыть</button><button data-v="true">Показать</button></div></div>
+    </div>
+    <p class="result-note">«Высокая» включает свечение, мягкие тени и сглаживание. На телефоне лучше «Средняя» или «Низкая».</p>
+    <div class="actions"><button class="btn primary" id="btn-settings-back">Готово</button></div>
+  </div>
+</section>
+
+<!-- Как играть -->
+<section id="scr-help" class="screen dim" hidden>
+  <div class="setup">
+    <div class="screen-head"><div><div class="eyebrow">Как играть</div><h2>Управление и приёмы</h2></div></div>
+    <div class="help-grid">
+      <div class="panel block">
+        <h3>Клавиатура</h3>
+        <div class="ctl">
+          <span class="k"><kbd>W</kbd><kbd>↑</kbd></span><span>Газ</span>
+          <span class="k"><kbd>S</kbd><kbd>↓</kbd></span><span>Тормоз, задний ход</span>
+          <span class="k"><kbd>A</kbd><kbd>D</kbd><kbd>←</kbd><kbd>→</kbd></span><span>Руль</span>
+          <span class="k"><kbd>Пробел</kbd><kbd>Shift</kbd></span><span>Прыжок и занос (держать)</span>
+          <span class="k"><kbd>E</kbd><kbd>X</kbd><kbd>Ctrl</kbd></span><span>Использовать предмет</span>
+          <span class="k"><kbd>C</kbd></span><span>Взгляд назад</span>
+          <span class="k"><kbd>V</kbd></span><span>Сменить камеру</span>
+          <span class="k"><kbd>R</kbd></span><span>Вернуться на трассу</span>
+          <span class="k"><kbd>Esc</kbd><kbd>P</kbd></span><span>Пауза</span>
+          <span class="k"><kbd>M</kbd></span><span>Выключить звук</span>
+        </div>
+      </div>
+      <div class="panel block">
+        <h3>Геймпад</h3>
+        <div class="ctl">
+          <span class="k"><kbd>RT</kbd><kbd>A</kbd></span><span>Газ</span>
+          <span class="k"><kbd>LT</kbd><kbd>X</kbd></span><span>Тормоз</span>
+          <span class="k"><kbd>Стик</kbd></span><span>Руль</span>
+          <span class="k"><kbd>RB</kbd><kbd>LB</kbd><kbd>B</kbd></span><span>Занос</span>
+          <span class="k"><kbd>Y</kbd></span><span>Предмет</span>
+          <span class="k"><kbd>Start</kbd></span><span>Пауза</span>
+        </div>
+        <h3 style="margin-top:18px">Телефон</h3>
+        <p class="drv-bio" style="margin:0">Газ нажат всегда. Слева — руль, справа — занос, тормоз и предмет.</p>
+      </div>
+      <div class="panel block">
+        <h3>Приёмы</h3>
+        <ul class="help-list">
+          <li><b>Мини-турбо.</b> Зажмите занос в повороте и держите. Искры меняют цвет: <span class="sw" style="background:#59b3ff"></span>синие, <span class="sw" style="background:#ff8c1f"></span>оранжевые, <span class="sw" style="background:var(--purple)"></span>фиолетовые. Отпустите — получите ускорение, чем дольше занос, тем сильнее.</li>
+          <li><b>Идеальный старт.</b> Жмите газ после того, как загорится пятый огонь. Слишком рано — пробуксовка.</li>
+          <li><b>Трава и песок</b> замедляют вдвое. Ускорители на асфальте — наоборот.</li>
+        </ul>
+      </div>
+      <div class="panel block">
+        <h3>Предметы и хронометраж</h3>
+        <ul class="help-list">
+          <li><b>Нитро</b> — рывок вперёд. Отстающим иногда выпадает три сразу.</li>
+          <li><b>Ракета</b> летит по трассе к сопернику впереди.</li>
+          <li><b>Масло</b> оставляет пятно позади: кто наедет, закрутится.</li>
+          <li><b>Щит</b> на 7 секунд защищает от одного попадания.</li>
+          <li>Время круга: <span class="purple"><b style="color:inherit">фиолетовое</b></span> — рекорд трассы или быстрейший круг гонки, <span class="green"><b style="color:inherit">зелёное</b></span> — ваш лучший круг в заезде.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="actions"><button class="btn primary" data-go="title">Понятно</button></div>
+  </div>
+</section>
+
+<!-- Пауза -->
+<section id="scr-pause" class="screen dim" hidden>
+  <div style="margin:auto; width:min(420px,100%)">
+    <div class="eyebrow">Пауза</div>
+    <h2 style="margin-bottom:18px" id="pause-title">Заезд остановлен</h2>
+    <nav class="menu-list" aria-label="Пауза">
+      <button class="menu-btn primary" data-act="resume"><span class="t">Продолжить</span><span class="h">Esc</span></button>
+      <button class="menu-btn" data-act="restart"><span class="t">Начать заново</span><span class="h"></span></button>
+      <button class="menu-btn" data-act="settings"><span class="t">Настройки</span><span class="h"></span></button>
+      <button class="menu-btn" data-act="quit"><span class="t">Выйти в меню</span><span class="h"></span></button>
+    </nav>
+  </div>
+</section>
+
+<!-- Результаты -->
+<section id="scr-results" class="screen dim" hidden>
+  <div class="results">
+    <div class="screen-head"><div><div class="eyebrow" id="res-eyebrow">Результаты</div><h2 id="res-title">Финиш</h2></div></div>
+    <div id="res-podium"></div>
+    <div class="panel table-wrap"><table class="res" id="res-table"></table></div>
+    <p class="result-note" id="res-note"></p>
+    <div class="actions" id="res-actions"></div>
+  </div>
+</section>
+
+<!-- HUD -->
+<div id="hud" hidden>
+  <div class="speedlines" id="speedlines"></div>
+  <div class="hitflash" id="hitflash"></div>
+  <div class="hud-pos">
+    <div class="pos-big" id="pos-big" aria-live="polite"><span id="pos-num">1</span><small id="pos-of">/8</small></div>
+    <div class="lap-line">Круг <b id="lap-num">1/3</b></div>
+  </div>
+  <div class="tower" id="tower"></div>
+  <div class="item-slot" id="item-slot"><div id="item-icon"></div><span class="cnt" id="item-cnt" hidden></span><span class="key">E · предмет</span></div>
+  <div class="fps" id="fps" hidden></div>
+  <div class="lights" id="lights" hidden>
+    <div class="col"><i></i><i></i></div><div class="col"><i></i><i></i></div><div class="col"><i></i><i></i></div><div class="col"><i></i><i></i></div><div class="col"><i></i><i></i></div>
+  </div>
+  <div class="msg-wrap" id="msgs" aria-live="polite"></div>
+  <div class="wrongway" id="wrongway" hidden>Неверное направление</div>
+  <canvas class="minimap" id="minimap" width="340" height="340"></canvas>
+  <div class="dash">
+    <div class="leds" id="leds"></div>
+    <div class="dash-main">
+      <div><div class="speed" id="speed">0</div><div class="speed-u">км/ч</div></div>
+      <div class="laptimes">
+        <div class="lt-now" id="lt-now">0:00.000</div>
+        <div class="lt-delta" id="lt-delta"></div>
+        <div class="lt-best">Лучший <b id="lt-best">–:––.–––</b></div>
+      </div>
+    </div>
+    <div class="drift" id="drift"><i><b></b></i><i><b></b></i><i><b></b></i></div>
+  </div>
+</div>
+
+<div id="touch" hidden>
+  <button class="tl" data-touch="left" aria-label="Влево">◀</button>
+  <button class="tr" data-touch="right" aria-label="Вправо">▶</button>
+  <button class="td" data-touch="drift">Занос</button>
+  <button class="tb" data-touch="brake">Тормоз</button>
+  <button class="ti" data-touch="item">Предмет</button>
+  <button class="tp" data-touch="pause" aria-label="Пауза">II</button>
+  <div class="rotate-hint">Поверните телефон горизонтально: так удобнее рулить</div>
+</div>
+
+<noscript><div class="noscript">Для игры нужен JavaScript и WebGL.</div></noscript>
+<script src="game.js"></script>
+</body>
+</html>
