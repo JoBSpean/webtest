@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Апекс Картинг</title>
+<meta name="description" content="Прототип спортивного картинга в браузере: реальные картодромы, физика карта без дифференциала, классы Rotax Junior, OK Senior и KZ2, тайминг по секторам и лаборатория нейроэволюции.">
+<meta name="theme-color" content="#0f1115">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f1115'/%3E%3Cpath d='M14 46 30 14h8l12 32h-9l-2.5-7H25l-3 7z' fill='%23ffd000'/%3E%3Cpath d='M27.5 32h8L32 21z' fill='%230f1115'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Onest:wght@400;500;600;800&family=Unbounded:wght@600;800;900&display=swap">
+<style>
+:root {
+  color-scheme: dark;
+  --tarmac: #0f1115;
+  --panel: rgba(15, 17, 22, 0.84);
+  --panel-solid: #15181e;
+  --raise: #1d2128;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.22);
+  --chalk: #f2f3f5;
+  --muted: #9aa1ad;
+  --faint: #6f7784;
+  --signal: #ffd000;
+  --signal-ink: #16130a;
+  --purple: #b36bff;
+  --green: #3ddc84;
+  --yellow: #ffd23f;
+  --red: #ff3b30;
+  --kerb: #e0322b;
+  --display: "Unbounded", "Arial Black", "Segoe UI", sans-serif;
+  --ui: "Onest", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: max(16px, env(safe-area-inset-left, 0px));
+  --gutter-r: max(16px, env(safe-area-inset-right, 0px));
+  --top: max(14px, env(safe-area-inset-top, 0px));
+  --bottom: max(14px, env(safe-area-inset-bottom, 0px));
+  --labw: 430px;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--tarmac); color: var(--chalk); font: 15px/1.45 var(--ui);
+  overflow: hidden; -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
+  user-select: none; -webkit-user-select: none; touch-action: manipulation;
+}
+#game { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: block; outline: none; }
+body.lab-mode #game { width: calc(100% - var(--labw)); }
+[hidden] { display: none !important; }
+button, input, select { font: inherit; color: inherit; }
+button:focus-visible, [tabindex]:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+/* ---------- верхняя панель ---------- */
+#topbar {
+  position: fixed; top: 0; right: 0; z-index: 30; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end;
+  padding: calc(var(--top) - 4px) var(--gutter-r) 0 0; max-width: 100%;
+}
+.chip { font: 600 11px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 20px; padding: 7px 10px; background: rgba(10,11,15,0.7); white-space: nowrap; }
+.chip.ok { color: var(--green); border-color: rgba(61,220,132,0.4); }
+.chip.warn { color: #e6b980; border-color: rgba(230,185,128,0.4); }
+.tb-btn { font: 700 12px/1 var(--ui); padding: 8px 12px; border-radius: 20px; border: 1px solid var(--line-strong); background: rgba(10,11,15,0.7); cursor: pointer; }
+.tb-btn:hover { background: rgba(255,255,255,0.1); }
+.tb-btn.accent { background: var(--signal); color: var(--signal-ink); border-color: var(--signal); }
+body.lab-mode #topbar { right: var(--labw); }
+
+@media (max-width: 640px) {
+  #topbar .chip { display: none; }
+  #topbar .tb-btn { padding: 7px 10px; font-size: 11px; }
+  body .screen { padding-top: calc(var(--top) + 44px); }
+  body .logo { margin-top: 2vh; }
+}
+
+/* ---------- экраны меню ---------- */
+.screen { position: fixed; inset: 0; padding: var(--top) var(--gutter-r) var(--bottom) var(--gutter); display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; z-index: 20; }
+.screen.shade { background: linear-gradient(90deg, rgba(10,11,15,0.93) 0%, rgba(10,11,15,0.74) 40%, rgba(10,11,15,0.08) 74%); }
+.screen.dim { background: rgba(8, 9, 12, 0.76); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.logo { display: flex; flex-direction: column; gap: 4px; margin: 5vh 0 3vh; }
+.logo-word { font: 900 clamp(50px, 8.5vw, 108px)/0.9 var(--display); letter-spacing: -0.02em; transform: skewX(-9deg); transform-origin: left bottom; display: flex; align-items: flex-end; }
+.logo-word .apex-a { color: var(--signal); }
+.logo-sub { font: 600 clamp(11px, 1.3vw, 14px)/1 var(--display); letter-spacing: 0.42em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 12px; padding-left: 4px; }
+.kerb { display: inline-block; width: 64px; height: 8px; background: repeating-linear-gradient(90deg, var(--kerb) 0 12px, #f2f2f2 12px 24px); transform: skewX(-30deg); }
+.menu-list { display: flex; flex-direction: column; gap: 6px; width: min(470px, 100%); }
+.menu-btn { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; text-align: left; padding: 14px 18px 14px 20px; background: rgba(255,255,255,0.04); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; transition: background .15s, border-color .15s, transform .15s; position: relative; }
+.menu-btn::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; background: transparent; }
+.menu-btn:hover, .menu-btn:focus-visible { background: rgba(255,255,255,0.09); border-color: var(--line-strong); transform: translateX(4px); outline: none; }
+.menu-btn:hover::before, .menu-btn:focus-visible::before { background: var(--signal); }
+.menu-btn .t { font: 800 clamp(16px, 1.9vw, 20px)/1.1 var(--ui); text-transform: uppercase; letter-spacing: 0.02em; }
+.menu-btn .h { font: 500 12px/1.2 var(--ui); color: var(--muted); }
+.menu-btn.primary { background: var(--signal); color: var(--signal-ink); border-color: var(--signal); }
+.menu-btn.primary .h { color: rgba(22,19,10,0.7); }
+.menu-btn.primary:hover { background: #ffe04d; }
+.menu-btn .lock { font: 700 10px/1 var(--mono); color: #e6b980; border: 1px solid rgba(230,185,128,0.4); padding: 4px 6px; border-radius: 3px; }
+.keys-hint { margin-top: auto; padding-top: 22px; display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--muted); font-size: 13px; }
+.keys-hint span { display: inline-flex; align-items: center; gap: 6px; }
+kbd { font: 700 11px/1 var(--mono); color: var(--chalk); padding: 4px 6px; min-width: 22px; text-align: center; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; background: rgba(255,255,255,0.06); }
+.onair { position: fixed; right: var(--gutter-r); bottom: var(--bottom); z-index: 21; display: flex; font: 700 12px/1 var(--ui); text-transform: uppercase; letter-spacing: 0.08em; pointer-events: none; }
+.onair .live { background: var(--red); color: #fff; padding: 8px 10px; display: flex; align-items: center; gap: 6px; }
+.onair .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #fff; animation: blink 1.2s infinite; }
+.onair .what { background: rgba(10,11,15,0.84); padding: 8px 12px; }
+@keyframes blink { 50% { opacity: 0.2; } }
+.welcome-note { color: var(--muted); font-size: 13px; margin: 14px 0 0; max-width: 60ch; }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.screen-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.eyebrow { font: 700 11px/1 var(--ui); letter-spacing: 0.18em; text-transform: uppercase; color: var(--signal); margin-bottom: 8px; }
+h2 { margin: 0; font: 800 clamp(24px, 3.2vw, 38px)/1.05 var(--display); letter-spacing: -0.01em; text-wrap: balance; }
+h3 { margin: 0 0 10px; font: 700 12px/1 var(--ui); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+.setup { width: min(1200px, 100%); margin: 0 auto; padding-block: 2vh; display: flex; flex-direction: column; flex: 1; }
+.setup-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 880px) { .setup-grid { grid-template-columns: 1fr; } }
+.setup-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.block { padding: 16px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+.tabs button { padding: 8px 14px; border-radius: 20px; border: 1px solid var(--line); background: transparent; cursor: pointer; font: 700 12px/1 var(--ui); color: var(--muted); }
+.tabs button[aria-pressed="true"] { background: var(--chalk); color: var(--tarmac); border-color: var(--chalk); }
+.tracks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 520px) { .tracks { grid-template-columns: 1fr; } }
+.track-card { display: grid; grid-template-columns: 110px 1fr; gap: 10px; padding: 8px; text-align: left; cursor: pointer; background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 5px; align-items: center; }
+.track-card canvas { width: 110px; height: 82px; border-radius: 3px; background: #0b0d11; display: block; }
+.track-card .nm { font: 800 14px/1.15 var(--ui); display: block; }
+.track-card .pl { font: 500 12px/1.2 var(--ui); color: var(--muted); display: block; margin-top: 3px; }
+.track-card .meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font: 500 11px/1.2 var(--mono); color: var(--muted); margin-top: 6px; }
+.track-card:hover { background: rgba(255,255,255,0.07); }
+.track-card[aria-pressed="true"] { border-color: var(--signal); background: rgba(255,208,0,0.07); box-shadow: inset 0 0 0 1px var(--signal); }
+.track-card[disabled] { cursor: default; }
+.track-desc { margin: 12px 0 0; color: var(--muted); font-size: 14px; max-width: 64ch; }
+.cup-stages { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font: 700 13px/1 var(--ui); margin-top: 10px; color: var(--muted); }
+.cup-stages b { color: var(--chalk); }
+.classes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 460px) { .classes { grid-template-columns: 1fr; } }
+.cls { text-align: left; padding: 10px; border-radius: 5px; border: 1px solid var(--line); background: rgba(255,255,255,0.03); cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
+.cls b { font: 800 14px/1.1 var(--ui); }
+.cls span { font: 600 11px/1.2 var(--mono); color: var(--signal); }
+.cls small { font: 500 12px/1.3 var(--ui); color: var(--muted); }
+.cls[aria-pressed="true"] { border-color: var(--signal); box-shadow: inset 0 0 0 1px var(--signal); background: rgba(255,208,0,0.07); }
+.drivers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 420px) { .drivers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.drv { display: grid; grid-template-columns: 32px 1fr; align-items: center; gap: 8px; padding: 7px; cursor: pointer; text-align: left; background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 5px; }
+.drv .num { width: 32px; height: 24px; display: grid; place-items: center; font: 800 12px/1 var(--display); border-radius: 3px; }
+.drv .nm { font: 700 13px/1.1 var(--ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drv[aria-pressed="true"] { border-color: var(--signal); box-shadow: inset 0 0 0 1px var(--signal); background: rgba(255,208,0,0.07); }
+.options { display: grid; gap: 12px; }
+.opt { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 12px; }
+@media (max-width: 420px) { .opt { grid-template-columns: 1fr; gap: 6px; } }
+.opt > label, .opt > .lbl { font: 600 13px/1.2 var(--ui); color: var(--muted); }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; background: rgba(0,0,0,0.3); padding: 3px; border-radius: 5px; border: 1px solid var(--line); }
+.seg button { flex: 1 1 auto; min-width: 44px; padding: 8px 10px; border: 0; border-radius: 3px; background: transparent; cursor: pointer; font: 700 13px/1 var(--ui); color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--chalk); color: var(--tarmac); }
+input[type="range"] { width: 100%; accent-color: var(--signal); }
+input[type="text"], input[type="password"], .txt { width: 100%; background: rgba(0,0,0,0.35); border: 1px solid var(--line-strong); border-radius: 5px; padding: 9px 10px; color: var(--chalk); font: 500 14px/1.2 var(--mono); user-select: text; -webkit-user-select: text; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; justify-content: flex-end; }
+.btn { padding: 13px 20px; border-radius: 4px; border: 1px solid var(--line-strong); background: rgba(255,255,255,0.06); cursor: pointer; font: 800 14px/1 var(--ui); text-transform: uppercase; letter-spacing: 0.04em; }
+.btn:hover { background: rgba(255,255,255,0.12); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn.primary { background: var(--signal); color: var(--signal-ink); border-color: var(--signal); }
+.btn.primary:hover { background: #ffe04d; }
+.btn.danger { color: #ff9aa6; border-color: rgba(255,120,130,0.4); }
+.btn.sm { padding: 9px 12px; font-size: 11px; }
+.help-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 14px; }
+.ctl { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; align-items: center; font-size: 14px; }
+.ctl .k { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.help-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; font-size: 14px; color: var(--muted); }
+.help-list b { color: var(--chalk); }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+
+/* результаты и таблицы */
+.results { width: min(900px, 100%); margin: auto; padding-block: 2vh; }
+.table-wrap { overflow-x: auto; }
+table.res { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.res th { font: 700 11px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.res td { padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.res td.p { font: 800 17px/1 var(--display); width: 44px; }
+table.res td.mono, table.res th.mono { font-family: var(--mono); text-align: right; }
+table.res tr.me td { background: rgba(255,208,0,0.1); }
+table.res tr.me td.p { color: var(--signal); }
+.pilot { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; }
+.pilot i { width: 6px; height: 20px; border-radius: 1px; }
+.purple { color: var(--purple); } .green { color: var(--green); } .yellow { color: var(--yellow); }
+.est { color: var(--muted); font-style: italic; }
+.pts { color: var(--signal); font-weight: 800; }
+.result-note { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
+.podium { display: grid; grid-template-columns: 1fr 1.15fr 1fr; align-items: end; gap: 8px; margin: 8px 0 18px; }
+.podium > div { text-align: center; padding: 12px 8px; border-radius: 4px 4px 0 0; background: rgba(255,255,255,0.05); border: 1px solid var(--line); border-bottom: 0; }
+.podium .p1 { min-height: 140px; border-color: var(--signal); } .podium .p2 { min-height: 110px; } .podium .p3 { min-height: 90px; }
+.podium .place { font: 900 28px/1 var(--display); } .podium .p1 .place { color: var(--signal); }
+.podium .who { font: 700 14px/1.2 var(--ui); margin-top: 6px; }
+
+/* ---------- HUD ---------- */
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; font-variant-numeric: tabular-nums; }
+.hud-pos { position: absolute; left: var(--gutter); top: var(--top); display: flex; flex-direction: column; gap: 4px; }
+.pos-big { display: flex; align-items: flex-start; gap: 2px; font: 900 58px/0.9 var(--display); transform: skewX(-8deg); text-shadow: 0 3px 0 rgba(0,0,0,0.35); }
+.pos-big small { font: 800 20px/1 var(--display); color: #c9ced6; margin-top: 6px; }
+.lap-line { font: 700 13px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: #c9ced6; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
+.lap-line b { color: var(--chalk); font: 800 16px/1 var(--mono); letter-spacing: 0; }
+.tower { position: absolute; left: var(--gutter); top: calc(var(--top) + 96px); width: 196px; background: rgba(10,11,15,0.74); border-radius: 4px; overflow: hidden; }
+.tower .row { display: grid; grid-template-columns: 24px 4px 1fr auto; gap: 7px; align-items: center; padding: 4px 8px 4px 0; font: 600 13px/1.25 var(--ui); }
+.tower .row + .row { border-top: 1px solid rgba(255,255,255,0.05); }
+.tower .row .p { text-align: center; font: 800 12px/1 var(--mono); color: var(--muted); }
+.tower .row i { height: 14px; border-radius: 1px; }
+.tower .row .g { font: 600 12px/1 var(--mono); color: var(--muted); }
+.tower .row.me { background: var(--signal); color: var(--signal-ink); }
+.tower .row.me .p, .tower .row.me .g { color: var(--signal-ink); }
+
+/* тайминг */
+.timing { position: absolute; right: var(--gutter-r); top: calc(var(--top) + 38px); width: 300px; background: rgba(10,11,15,0.84); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 10px 12px; }
+.t-row { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 8px; }
+.t-row + .t-row { margin-top: 4px; }
+.t-row span { font: 700 10px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.t-row b { font: 700 15px/1 var(--mono); }
+.t-row.now b { font-size: 24px; }
+.t-delta { font: 700 13px/1 var(--mono); text-align: right; min-height: 14px; margin-top: 2px; }
+.t-delta.neg { color: var(--green); } .t-delta.pos { color: var(--red); }
+.sectors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 8px; }
+.sec { border-radius: 3px; padding: 5px 4px 4px; background: rgba(255,255,255,0.06); text-align: center; }
+.sec span { display: block; font: 700 9px/1 var(--ui); letter-spacing: 0.14em; color: var(--muted); }
+.sec b { display: block; font: 700 12px/1.2 var(--mono); margin-top: 3px; }
+.sec.purple { background: var(--purple); } .sec.green { background: var(--green); } .sec.yellow { background: var(--yellow); }
+.sec.purple span, .sec.green span, .sec.yellow span, .sec.purple b, .sec.green b, .sec.yellow b { color: #0d0f13; }
+.sec.live { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.5); }
+.item-slot { position: absolute; right: calc(var(--gutter-r) + 312px); top: calc(var(--top) + 38px); width: 74px; height: 74px; border-radius: 8px; background: rgba(10,11,15,0.72); border: 2px solid rgba(255,255,255,0.18); display: grid; place-items: center; }
+.item-slot svg { width: 52px; height: 52px; }
+.item-slot.ready { border-color: var(--signal); }
+.item-slot .cnt { position: absolute; right: -6px; bottom: -6px; background: var(--signal); color: var(--signal-ink); font: 800 13px/1 var(--mono); padding: 4px 6px; border-radius: 3px; }
+.dash { position: absolute; right: var(--gutter-r); bottom: var(--bottom); width: 280px; padding: 10px 12px 12px; border-radius: 10px; background: linear-gradient(180deg, rgba(22,24,30,0.93), rgba(10,11,14,0.93)); border: 1px solid rgba(255,255,255,0.12); }
+.leds { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; margin-bottom: 8px; }
+.leds i { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.08); }
+.leds i.on.g { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.leds i.on.y { background: var(--signal); box-shadow: 0 0 6px var(--signal); }
+.leds i.on.r { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.leds.shift i.on { animation: blink .12s steps(2) infinite; }
+.dash-main { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
+.speed { font: 800 52px/0.85 var(--mono); letter-spacing: -0.04em; }
+.speed-u { font: 700 10px/1 var(--ui); color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; margin-top: 6px; }
+.gearbox { text-align: right; }
+.gear { font: 900 40px/0.9 var(--display); color: var(--signal); }
+.rpm { font: 600 11px/1 var(--mono); color: var(--muted); margin-top: 6px; }
+.class-tag { position: absolute; left: 12px; top: -10px; font: 700 10px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; background: var(--signal); color: var(--signal-ink); padding: 4px 6px; border-radius: 3px; }
+.minimap { position: absolute; left: var(--gutter); bottom: var(--bottom); width: 170px; height: 170px; border-radius: 8px; background: rgba(10,11,15,0.55); }
+.fps { position: absolute; left: 50%; bottom: var(--bottom); transform: translateX(-50%); font: 600 11px/1 var(--mono); color: var(--muted); background: rgba(0,0,0,0.45); padding: 4px 6px; border-radius: 3px; }
+.lights { position: absolute; left: 50%; top: calc(var(--top) + 44px); transform: translateX(-50%); display: flex; gap: 10px; padding: 10px 14px; background: #0b0b0d; border-radius: 10px; border: 1px solid #25252a; }
+.lights .col { display: flex; flex-direction: column; gap: 6px; }
+.lights .col i { width: 24px; height: 24px; border-radius: 50%; background: #2a0707; box-shadow: inset 0 -3px 6px rgba(0,0,0,0.6); }
+.lights .col.on i { background: radial-gradient(circle at 40% 35%, #ff8a80, var(--red) 55%, #b3140c); box-shadow: 0 0 18px rgba(255,59,48,0.8); }
+.msg-wrap { position: absolute; left: 0; right: 0; top: 30%; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-inline: 16px; }
+.msg { font: 900 clamp(24px, 4.6vw, 48px)/1 var(--display); transform: skewX(-8deg); text-align: center; text-shadow: 0 4px 0 rgba(0,0,0,0.35); animation: msgIn .35s cubic-bezier(.2,1.4,.4,1); text-wrap: balance; }
+.msg.small { font-size: clamp(17px, 2.4vw, 24px); }
+.msg.good { color: var(--green); } .msg.bad { color: #ff8a80; } .msg.final { color: var(--signal); } .msg.go { color: var(--green); font-size: clamp(38px, 7vw, 78px); }
+.msg.out { animation: msgOut .3s forwards; }
+@keyframes msgIn { from { transform: skewX(-8deg) scale(1.6); opacity: 0; } }
+@keyframes msgOut { to { transform: skewX(-8deg) translateY(-14px); opacity: 0; } }
+.lapflash { font: 800 clamp(20px, 3vw, 30px)/1 var(--mono); padding: 8px 14px; border-radius: 4px; background: rgba(10,11,15,0.8); animation: msgIn .3s; }
+.lapflash small { display: block; font: 700 11px/1 var(--ui); letter-spacing: 0.16em; text-transform: uppercase; margin-bottom: 6px; color: var(--muted); }
+.lapflash.record, .lapflash.fastest { color: var(--purple); } .lapflash.pb { color: var(--green); } .lapflash.invalid { color: var(--muted); text-decoration: line-through; }
+.wrongway { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); background: var(--red); color: #fff; padding: 10px 18px; font: 900 clamp(15px, 2.2vw, 22px)/1 var(--display); border-radius: 4px; animation: blink .6s infinite; white-space: nowrap; }
+.speedlines { position: absolute; inset: 0; opacity: 0; transition: opacity .25s; background: repeating-conic-gradient(from 0deg at 50% 55%, rgba(255,255,255,0) 0deg 3deg, rgba(255,255,255,0.09) 3.4deg 3.8deg, rgba(255,255,255,0) 4.2deg 9deg); -webkit-mask: radial-gradient(circle at 50% 55%, transparent 28%, #000 70%); mask: radial-gradient(circle at 50% 55%, transparent 28%, #000 70%); }
+.speedlines.on { opacity: 1; }
+.hitflash { position: absolute; inset: 0; background: radial-gradient(circle, transparent 50%, rgba(255,40,20,0.35)); opacity: 0; transition: opacity .4s; }
+.hitflash.on { opacity: 1; transition: none; }
+.watch-tag { position: absolute; left: var(--gutter); top: var(--top); font: 800 13px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; background: var(--green); color: #0d0f13; padding: 7px 10px; border-radius: 3px; }
+
+/* сенсорное управление */
+#touch { position: fixed; inset: 0; z-index: 12; pointer-events: none; }
+#touch button { pointer-events: auto; position: absolute; border: 2px solid rgba(255,255,255,0.28); background: rgba(10,11,15,0.45); color: #fff; border-radius: 50%; font: 800 12px/1 var(--ui); text-transform: uppercase; display: grid; place-items: center; touch-action: none; }
+#touch button.on { background: rgba(255,208,0,0.4); border-color: var(--signal); }
+#touch .tl { left: var(--gutter); bottom: calc(var(--bottom) + 10px); width: 84px; height: 84px; font-size: 28px; }
+#touch .tr { left: calc(var(--gutter) + 96px); bottom: calc(var(--bottom) + 10px); width: 84px; height: 84px; font-size: 28px; }
+#touch .tb { right: var(--gutter-r); bottom: calc(var(--bottom) + 10px); width: 92px; height: 92px; font-size: 12px; }
+#touch .ti { right: calc(var(--gutter-r) + 104px); bottom: calc(var(--bottom) + 10px); width: 64px; height: 64px; font-size: 10px; }
+#touch .tp { left: 50%; transform: translateX(-50%); top: var(--top); width: 44px; height: 44px; border-radius: 8px; font-size: 14px; }
+body.touch-on .dash { bottom: calc(var(--bottom) + 4px); top: auto; left: 50%; right: auto; transform: translateX(-50%) scale(0.62); transform-origin: bottom center; }
+body.touch-on .minimap { display: none; }
+body.touch-on .timing { transform: scale(0.8); transform-origin: top right; }
+@media (max-width: 760px), (max-height: 520px) {
+  .tower { display: none; }
+  .pos-big { font-size: 42px; }
+  .timing { transform: scale(0.78); transform-origin: top right; }
+  .dash { transform: scale(0.78); transform-origin: bottom right; }
+  .minimap { width: 120px; height: 120px; }
+  .item-slot { right: calc(var(--gutter-r) + 250px); }
+}
+
+/* ---------- лаборатория ИИ ---------- */
+#lab { position: fixed; top: 0; right: 0; bottom: 0; width: var(--labw); z-index: 25; background: var(--panel-solid); border-left: 1px solid var(--line); overflow-y: auto; padding: 18px 18px 30px; font-size: 13px; }
+@media (max-width: 800px) { :root { --labw: 100%; } body.lab-mode #game { width: 100%; height: 42%; } #lab { top: 42%; } body.lab-mode #topbar { right: 0; } body #labCaption { bottom: calc(58% + 8px); } }
+.lab-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
+.lab-head h2 { font-size: 22px; }
+.badge { font: 700 10px/1 var(--mono); letter-spacing: 0.06em; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 20px; padding: 6px 9px; white-space: nowrap; }
+.badge.on { color: var(--green); border-color: rgba(61,220,132,0.5); }
+.lab-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
+.lab-row label { display: flex; flex-direction: column; gap: 4px; font: 600 11px/1 var(--ui); color: var(--muted); }
+.lab-row select, .lab-row input[type=number] { background: rgba(0,0,0,0.35); border: 1px solid var(--line-strong); border-radius: 5px; padding: 7px 8px; color: var(--chalk); font: 600 12px/1 var(--mono); }
+.metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.metrics div { background: #11141a; padding: 11px 12px; }
+.metrics small { display: block; font: 700 9px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.metrics b { display: block; font: 700 20px/1.1 var(--mono); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.metrics.small b { font-size: 15px; }
+.note { font-size: 12px; color: var(--muted); margin: 10px 0; line-height: 1.5; }
+.preset-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin: 10px 0; }
+.preset-row button { font: 700 11px/1.2 var(--ui); padding: 8px 4px; border-radius: 4px; border: 1px solid var(--line-strong); background: rgba(255,255,255,0.04); cursor: pointer; }
+details { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 14px; }
+summary { cursor: pointer; font: 700 12px/1.2 var(--ui); color: #cfd4dc; }
+.chart { display: block; width: 100%; height: 132px; background: #0b0e13; border-radius: 6px; margin: 10px 0 0; }
+.chart-title { display: flex; justify-content: space-between; align-items: center; margin: 14px 0 0; font: 700 12px/1 var(--ui); }
+.chart-title span { font: 500 10px/1 var(--ui); color: var(--muted); }
+.legend { display: flex; justify-content: space-between; font-size: 10px; margin-top: 5px; }
+.set-search { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
+.set-search input { flex: 1; background: rgba(0,0,0,0.35); border: 1px solid var(--line-strong); border-radius: 5px; padding: 7px 9px; color: var(--chalk); font: 500 12px/1 var(--ui); user-select: text; }
+#setCount { font-size: 10px; color: var(--muted); }
+.set-tabs { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+.set-tab { font: 700 11px/1 var(--ui); padding: 7px 10px; border-radius: 20px; background: rgba(255,255,255,0.04); border: 1px solid var(--line); color: var(--muted); cursor: pointer; }
+.set-tab.on { background: var(--chalk); border-color: var(--chalk); color: var(--tarmac); }
+.set-row { padding: 11px 0; border-bottom: 1px solid var(--line); }
+.set-row.key { border-left: 2px solid var(--signal); padding-left: 10px; margin-left: -12px; }
+.set-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.set-name { font: 600 12px/1.3 var(--ui); }
+.set-name i { color: var(--signal); font-style: normal; margin-right: 5px; }
+.set-def { font: 600 9px/1 var(--ui); padding: 4px 7px; border-radius: 12px; border: 1px solid var(--line); background: transparent; color: var(--faint); cursor: pointer; white-space: nowrap; }
+.set-def.changed { color: #e8c27e; border-color: rgba(232,194,126,0.5); }
+.set-def:disabled { opacity: 0.5; cursor: default; }
+.set-ctl { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+.set-range { flex: 1; min-width: 0; accent-color: var(--signal); }
+.set-num { width: 76px; background: rgba(0,0,0,0.35); border: 1px solid var(--line-strong); border-radius: 5px; padding: 6px; color: var(--chalk); font: 600 12px/1 var(--mono); text-align: right; }
+.set-ctl select { flex: 1; background: rgba(0,0,0,0.35); border: 1px solid var(--line-strong); border-radius: 5px; padding: 7px; color: var(--chalk); }
+.set-hint { font-size: 11px; color: var(--faint); margin: 6px 0 0; line-height: 1.45; }
+.switch { display: inline-flex; align-items: center; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch .trk { width: 42px; height: 23px; border-radius: 12px; background: #262b34; border: 1px solid var(--line-strong); position: relative; }
+.switch .trk::after { content: ''; position: absolute; top: 2px; left: 2px; width: 17px; height: 17px; border-radius: 50%; background: #7d8697; transition: transform .15s; }
+.switch input:checked + .trk { background: rgba(255,208,0,0.25); border-color: var(--signal); }
+.switch input:checked + .trk::after { transform: translateX(19px); background: var(--signal); }
+.pilot-scroll { max-height: 300px; overflow: auto; }
+table.mini { width: 100%; border-collapse: collapse; font: 500 11px/1.3 var(--mono); font-variant-numeric: tabular-nums; }
+table.mini th { text-align: left; color: var(--muted); font: 700 9px/1 var(--ui); letter-spacing: 0.1em; text-transform: uppercase; padding: 6px 4px; position: sticky; top: 0; background: var(--panel-solid); }
+table.mini td { padding: 6px 4px; border-bottom: 1px solid var(--line); }
+table.mini td small { display: block; color: var(--faint); font-size: 9px; }
+.data-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+#dataStatus { color: var(--green); min-height: 16px; font-size: 12px; margin-top: 8px; }
+#labCaption { position: fixed; left: var(--gutter); bottom: var(--bottom); z-index: 11; font: 700 11px/1.4 var(--mono); color: #d5dae2; background: rgba(10,11,15,0.72); padding: 8px 10px; border-radius: 4px; pointer-events: none; }
+#labCaption b { color: var(--green); }
+
+/* гараж и модальные окна */
+.overlay { position: fixed; inset: 0; z-index: 40; background: rgba(5,7,10,0.8); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); display: grid; place-items: center; padding: 16px; }
+.garage-card { width: min(1080px, 100%); max-height: 92dvh; overflow: auto; background: var(--panel-solid); border: 1px solid var(--line-strong); border-radius: 10px; padding: 22px; }
+.garage-grid { display: grid; grid-template-columns: 1fr 1.25fr; gap: 24px; }
+@media (max-width: 800px) { .garage-grid { grid-template-columns: 1fr; } }
+.board-scroll { max-height: 230px; overflow: auto; margin-bottom: 14px; }
+.garage-card select { width: 100%; background: rgba(0,0,0,0.35); border: 1px solid var(--line-strong); border-radius: 5px; padding: 9px; color: var(--chalk); }
+.modal-card { width: min(420px, 100%); background: var(--panel-solid); border: 1px solid var(--line-strong); border-radius: 10px; padding: 24px; }
+.modal-card h2 { font-size: 24px; margin-bottom: 8px; }
+.field { display: block; font: 700 10px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-top: 14px; }
+.field input { margin-top: 6px; }
+.check { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+.check input { accent-color: var(--signal); width: 16px; height: 16px; }
+.error { color: #ff9aa6; font-size: 12px; min-height: 16px; margin: 10px 0 0; }
+#loading { position: fixed; inset: 0; z-index: 50; background: var(--tarmac); display: grid; place-items: center; }
+#loading .bar { width: 180px; height: 6px; margin-top: 18px; background: repeating-linear-gradient(90deg, var(--kerb) 0 14px, #f2f2f2 14px 28px); background-size: 28px 6px; animation: kerbs .5s linear infinite; transform: skewX(-30deg); }
+@keyframes kerbs { to { background-position: 28px 0; } }
+#loading .msg-l { font: 700 12px/1.4 var(--ui); letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); text-align: center; max-width: 40ch; }
+@media (prefers-reduced-motion: reduce) { .msg, .lapflash, #loading .bar, .onair .live::before, .wrongway, .leds.shift i.on { animation: none !important; } .menu-btn:hover { transform: none; } }
+</style>
+</head>
+<body>
+<canvas id="game" tabindex="-1" aria-label="Игровая сцена"></canvas>
+
+<div id="loading" role="status"><div><div class="logo-word" style="font-size:44px"><span class="apex-a">А</span>ПЕКС</div><div class="bar" aria-hidden="true"></div><p class="msg-l" id="loading-text">Прогреваем шины</p></div></div>
+
+<div id="topbar" hidden>
+  <span class="chip warn" id="lockChip">Гостевой режим</span>
+  <span class="chip" id="cloudChip">Облако: подключение…</span>
+  <span class="chip" id="fpsChip" hidden>— FPS</span>
+  <button class="tb-btn" id="soundBtn">♪ Звук</button>
+  <button class="tb-btn" id="garageBtn">Рекорды</button>
+  <button class="tb-btn accent" id="adminBtn">Админ-зона</button>
+</div>
+
+<!-- Главное меню -->
+<section id="scr-title" class="screen shade" hidden>
+  <div class="logo"><div class="logo-word" aria-label="Апекс"><span class="apex-a">А</span>ПЕКС</div><div class="logo-sub"><span class="kerb" aria-hidden="true"></span>Спортивный картинг</div></div>
+  <nav class="menu-list" aria-label="Главное меню">
+    <button class="menu-btn primary" data-go="tt"><span class="t">Заезд на время</span><span class="h">выезд из боксов, секторы</span></button>
+    <button class="menu-btn" data-go="race"><span class="t">Гонка</span><span class="h">до 8 картов</span></button>
+    <button class="menu-btn" data-go="cup"><span class="t">Чемпионат</span><span class="h">4 картодрома</span></button>
+    <button class="menu-btn" data-go="lab"><span class="t">Лаборатория ИИ</span><span class="h" id="labLock"><span class="lock">админ</span></span></button>
+    <button class="menu-btn" data-go="garage"><span class="t">Гараж и рекорды</span><span class="h">пилоты, таблицы</span></button>
+    <button class="menu-btn" data-go="settings"><span class="t">Настройки</span><span class="h">графика, руль, звук</span></button>
+    <button class="menu-btn" data-go="help"><span class="t">Как ездить на карте</span><span class="h">управление, физика</span></button>
+  </nav>
+  <label class="field" style="max-width:300px">Имя для рекордов<input type="text" id="playerName" maxlength="30" value="Игрок"></label>
+  <p class="welcome-note" id="welcomeData"></p>
+  <div class="keys-hint" aria-label="Управление">
+    <span><kbd>W</kbd><kbd>↑</kbd> газ</span><span><kbd>S</kbd><kbd>↓</kbd> тормоз</span><span><kbd>A</kbd><kbd>D</kbd> руль</span><span><kbd>E</kbd><kbd>Q</kbd> передачи KZ2</span><span><kbd>V</kbd> камера</span><span><kbd>Esc</kbd> пауза</span>
+  </div>
+</section>
+<div class="onair" id="onair" hidden><span class="live">Эфир</span><span class="what" id="onair-what"></span></div>
+
+<!-- Подготовка к заезду -->
+<section id="scr-setup" class="screen dim" hidden>
+  <div class="setup">
+    <div class="screen-head"><div><div class="eyebrow" id="setup-eyebrow">Заезд на время</div><h2 id="setup-title">Трасса, класс и пилот</h2></div></div>
+    <div class="setup-grid">
+      <div class="setup-col">
+        <div class="panel block">
+          <div class="tabs" role="group" aria-label="Раздел трасс"><button data-cat="real" aria-pressed="true">Картодромы</button><button data-cat="fun" aria-pressed="false">Фан-трассы</button></div>
+          <div class="tracks" id="track-list"></div>
+          <p class="track-desc" id="track-desc"></p>
+          <div class="cup-stages" id="cup-stages" hidden></div>
+        </div>
+      </div>
+      <div class="setup-col">
+        <div class="panel block"><h3>Класс карта</h3><div class="classes" id="class-list"></div></div>
+        <div class="panel block"><h3>Пилот</h3><div class="drivers" id="driver-list"></div></div>
+        <div class="panel block options">
+          <div class="opt" id="opt-diff"><span class="lbl">Соперники</span><div class="seg" data-opt="difficulty"><button data-v="easy">Лёгкие</button><button data-v="normal">Средние</button><button data-v="hard">Сильные</button></div></div>
+          <div class="opt" id="opt-laps"><span class="lbl">Круги</span><div class="seg" data-opt="laps"><button data-v="3">3</button><button data-v="5">5</button><button data-v="8">8</button><button data-v="12">12</button></div></div>
+          <div class="opt" id="opt-opp"><span class="lbl">Картов на старте</span><div class="seg" data-opt="opponents"><button data-v="3">4</button><button data-v="5">6</button><button data-v="7">8</button></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="actions"><button class="btn" data-go="title">Назад</button><button class="btn primary" id="btn-start">На трассу</button></div>
+  </div>
+</section>
+
+<!-- Настройки -->
+<section id="scr-settings" class="screen dim" hidden>
+  <div class="setup" style="width:min(660px,100%)">
+    <div class="screen-head"><div><div class="eyebrow">Настройки</div><h2>Графика, руль и звук</h2></div></div>
+    <div class="panel block options">
+      <div class="opt"><span class="lbl">Графика</span><div class="seg" data-set="quality"><button data-v="low">Низкая</button><button data-v="medium">Средняя</button><button data-v="high">Высокая</button></div></div>
+      <div class="opt"><span class="lbl">Камера</span><div class="seg" data-set="camera"><button data-v="1">От 3-го лица</button><button data-v="2">Издалека</button><button data-v="3">С пилота</button><button data-v="0">Сверху</button></div></div>
+      <div class="opt"><label for="set-camDist">Дистанция камеры</label><input type="range" id="set-camDist" min="0.7" max="1.6" step="0.05" data-cam="camDist"></div>
+      <div class="opt"><label for="set-camHeight">Высота камеры</label><input type="range" id="set-camHeight" min="0.6" max="1.8" step="0.05" data-cam="camHeight"></div>
+      <div class="opt"><label for="set-camFov">Угол обзора</label><input type="range" id="set-camFov" min="52" max="86" step="1" data-cam="camFov"></div>
+      <div class="opt"><label for="set-camVib">Тряска на скорости</label><input type="range" id="set-camVib" min="0" max="2" step="0.1" data-cam="camVib"></div>
+      <div class="opt"><span class="lbl">Помощь руля</span><div class="seg" data-set="assist"><button data-v="1">Полная</button><button data-v="0.5">Лёгкая</button><button data-v="0.15">Без помощи</button></div></div>
+      <div class="opt"><span class="lbl">Коробка KZ2</span><div class="seg" data-set="gearbox"><button data-v="auto">Авто</button><button data-v="manual">Ручная</button></div></div>
+      <div class="opt"><label for="set-master">Общая громкость</label><input type="range" id="set-master" min="0" max="1" step="0.05" data-vol="master"></div>
+      <div class="opt"><label for="set-music">Музыка</label><input type="range" id="set-music" min="0" max="1" step="0.05" data-vol="music"></div>
+      <div class="opt"><label for="set-sfx">Эффекты</label><input type="range" id="set-sfx" min="0" max="1" step="0.05" data-vol="sfx"></div>
+      <div class="opt"><span class="lbl">Сенсорные кнопки</span><div class="seg" data-set="touch"><button data-v="auto">Авто</button><button data-v="on">Вкл</button><button data-v="off">Выкл</button></div></div>
+      <div class="opt"><span class="lbl">Счётчик FPS</span><div class="seg" data-set="fps"><button data-v="false">Скрыть</button><button data-v="true">Показать</button></div></div>
+    </div>
+    <p class="result-note">Стабилизация включена всегда: карт не разворачивает, руль с клавиатуры набирается плавно, задняя ось не блокируется и не буксует. «Помощь руля» дополнительно ограничивает угол колёс на скорости и допустимый снос: «Полная» — самый спокойный карт, «Без помощи» — больше угла и скольжения, быстрее в умелых руках.</p>
+    <div class="actions"><button class="btn primary" id="btn-settings-back">Готово</button></div>
+  </div>
+</section>
+
+<!-- Как ездить -->
+<section id="scr-help" class="screen dim" hidden>
+  <div class="setup">
+    <div class="screen-head"><div><div class="eyebrow">Как ездить на карте</div><h2>Управление и физика</h2></div></div>
+    <div class="help-grid">
+      <div class="panel block"><h3>Клавиатура</h3><div class="ctl">
+        <span class="k"><kbd>W</kbd><kbd>↑</kbd></span><span>Газ</span>
+        <span class="k"><kbd>S</kbd><kbd>↓</kbd></span><span>Тормоз (заднего хода нет)</span>
+        <span class="k"><kbd>A</kbd><kbd>D</kbd></span><span>Руль</span>
+        <span class="k"><kbd>E</kbd><kbd>Q</kbd></span><span>Передача вверх / вниз (KZ2, ручная)</span>
+        <span class="k"><kbd>V</kbd></span><span>Камера: от 3-го лица / издалека / с пилота / сверху</span>
+        <span class="k"><kbd>C</kbd></span><span>Взгляд назад</span>
+        <span class="k"><kbd>R</kbd></span><span>Маршалы ставят на трассу (круг не засчитывается)</span>
+        <span class="k"><kbd>X</kbd></span><span>Предмет (только фан-трассы)</span>
+        <span class="k"><kbd>Esc</kbd><kbd>P</kbd></span><span>Пауза</span>
+      </div></div>
+      <div class="panel block"><h3>Геймпад</h3><div class="ctl">
+        <span class="k"><kbd>RT</kbd></span><span>Газ</span><span class="k"><kbd>LT</kbd></span><span>Тормоз (аналоговый)</span>
+        <span class="k"><kbd>Стик</kbd></span><span>Руль</span><span class="k"><kbd>RB</kbd><kbd>LB</kbd></span><span>Передачи KZ2</span>
+        <span class="k"><kbd>Y</kbd></span><span>Предмет</span><span class="k"><kbd>Start</kbd></span><span>Пауза</span>
+      </div><h3 style="margin-top:16px">Телефон</h3><p class="note" style="margin:0">Газ нажат всегда. Слева — руль, справа — тормоз. Лучше держать телефон горизонтально.</p></div>
+      <div class="panel block"><h3>Чем карт отличается от машины</h3><ul class="help-list">
+        <li><b>Нет дифференциала.</b> Задние колёса на одной оси крутятся одинаково, поэтому в повороте карт подтормаживает. Чтобы он повернул свободно, внутреннее заднее колесо должно приподняться: это происходит при заметном угле руля.</li>
+        <li><b>Слики держат до предела.</b> Перекрутил руль или затормозил в дуге — карт скользит и теряет время. Стабилизация не даёт развернуться, но медленный вход в поворот всё равно быстрее.</li>
+        <li><b>Тормоз только сзади</b> у Junior и OK. Тормози по прямой до поворота. У KZ2 тормоза на обе оси.</li>
+        <li><b>Поребрики</b> трясут и чуть снижают сцепление, <b>трава</b> резко тормозит.</li>
+      </ul></div>
+      <div class="panel block"><h3>Тайминг</h3><ul class="help-list">
+        <li>Круг делится на <b>3 сектора</b>. После каждого сектор окрашивается, как в настоящем тайминге:</li>
+        <li><span class="sw" style="background:var(--purple)"></span><b>фиолетовый</b> — лучший сектор вообще (рекорд трассы или быстрейший в заезде);</li>
+        <li><span class="sw" style="background:var(--green)"></span><b>зелёный</b> — ваш личный лучший;</li>
+        <li><span class="sw" style="background:var(--yellow)"></span><b>жёлтый</b> — медленнее вашего лучшего.</li>
+        <li>Заезд на время начинается из боксов: первый круг — выезд, время идёт со второго пересечения линии.</li>
+      </ul></div>
+    </div>
+    <div class="actions"><button class="btn primary" data-go="title">Понятно</button></div>
+  </div>
+</section>
+
+<!-- Пауза -->
+<section id="scr-pause" class="screen dim" hidden>
+  <div style="margin:auto; width:min(420px,100%)">
+    <div class="eyebrow">Пауза</div><h2 style="margin-bottom:16px" id="pause-title">Заезд остановлен</h2>
+    <nav class="menu-list" aria-label="Пауза">
+      <button class="menu-btn primary" data-act="resume"><span class="t">Продолжить</span><span class="h">Esc</span></button>
+      <button class="menu-btn" data-act="restart"><span class="t">Начать заново</span><span class="h"></span></button>
+      <button class="menu-btn" data-act="end" id="pauseEnd"><span class="t">Завершить сессию</span><span class="h">итоги кругов</span></button>
+      <button class="menu-btn" data-act="settings"><span class="t">Настройки</span><span class="h"></span></button>
+      <button class="menu-btn" data-act="quit"><span class="t">Выйти в меню</span><span class="h"></span></button>
+    </nav>
+  </div>
+</section>
+
+<!-- Результаты -->
+<section id="scr-results" class="screen dim" hidden>
+  <div class="results">
+    <div class="screen-head"><div><div class="eyebrow" id="res-eyebrow">Результаты</div><h2 id="res-title">Финиш</h2></div></div>
+    <div id="res-podium"></div>
+    <div class="panel table-wrap"><table class="res" id="res-table"></table></div>
+    <p class="result-note" id="res-note"></p>
+    <div class="actions" id="res-actions"></div>
+  </div>
+</section>
+
+<!-- Лаборатория ИИ (только админ) -->
+<aside id="lab" hidden>
+  <div class="lab-head"><div><div class="eyebrow">Нейроэволюция</div><h2>Лаборатория ИИ</h2></div><span class="badge" id="labState">ПАУЗА</span></div>
+  <div class="lab-row">
+    <label>Трасса<select id="labTrack"></select></label>
+    <label>Класс<select id="labClass"><option value="junior">Rotax Junior</option><option value="ok">OK Senior</option><option value="kz2">KZ2</option></select></label>
+  </div>
+  <div class="metrics"><div><small>Поколение</small><b id="generation">1</b></div><div><small>В заезде</small><b id="alive">0 / 0</b></div><div><small>Лучший прогресс</small><b id="record">0%</b></div><div><small>Лучший круг ИИ</small><b id="aiTime">—</b></div></div>
+  <div class="lab-row"><button class="btn primary sm" id="toggle">▶ Обучать</button><button class="btn sm" id="watch">Смотреть чемпиона</button><button class="btn sm" id="teacherBtn">Заново с учителем</button><button class="btn sm" id="labExit">Выйти</button></div>
+  <div class="metrics small"><div><small>Фактическое ускорение</small><b id="actualRate">0×</b></div><div><small>Без улучшения</small><b id="plateau">0 пок.</b></div><div><small>Мутация с усилением</small><b id="effectiveMutation">—</b></div><div><small>Разница с целью</small><b id="targetDelta">—</b></div></div>
+  <p class="note" id="targetLabel"></p>
+  <p class="note">Рекорд игрока: <span id="humanRecord">—</span></p>
+  <div class="lab-row"><label>Скорость<select id="rate"><option value="1">1×</option><option value="4">4×</option><option value="12">12×</option><option value="32">32×</option><option value="64">64×</option><option value="128">128×</option><option value="256">256×</option></select></label><label>Базовая мутация<input type="number" id="mutation" min="0" max="1" step="0.001" value="0.12" style="width:100px"></label></div>
+  <p class="note" id="brainInfo"></p>
+  <div class="preset-row"><button id="presetBalanced">Баланс</button><button id="presetFine">Доводка</button><button id="presetExplore">Выход из плато</button><button id="presetTurbo">Максимум</button></div>
+  <details open id="settingsBox"><summary>Настройки · <span id="settingsCount"></span></summary>
+    <div class="set-search"><input id="setFilter" placeholder="Поиск настройки" aria-label="Поиск настройки"><span id="setCount"></span></div>
+    <div id="setTabs" class="set-tabs"></div><div id="setPanels"></div>
+    <button class="btn primary sm" id="applySettings" style="margin-top:10px">Применить настройки</button>
+  </details>
+  <details open><summary>Время круга и стабильность</summary><canvas id="timeChart" class="chart"></canvas><canvas id="successChart" class="chart"></canvas></details>
+  <details><summary>Пилоты · личный MMR</summary><p class="note" id="pilotSummary"></p><div class="pilot-scroll"><table class="mini"><thead><tr><th>Пилот</th><th>MMR</th><th>Заезд</th><th>Статус</th></tr></thead><tbody id="pilotTable"></tbody></table></div></details>
+  <div class="chart-title"><b>Пройденная трасса</b><span><span class="green">●</span> лучший <span class="purple">●</span> средний</span></div><canvas id="historyChart" class="chart"></canvas>
+  <div class="chart-title"><b>Телеметрия лидера</b><span id="telemetryLabel">последние 30 с</span></div><canvas id="liveChart" class="chart"></canvas><div class="legend"><span class="green">Скорость · км/ч</span><span class="purple">Прогресс · %</span></div>
+  <details><summary>MMR, разнообразие и мутации</summary><canvas id="mmrChart" class="chart"></canvas><canvas id="diversityChart" class="chart"></canvas><canvas id="mutationChart" class="chart"></canvas></details>
+  <details><summary>Управление лидера</summary><p class="note" id="liveControls"></p><canvas id="aliveChart" class="chart"></canvas><canvas id="controlChart" class="chart"></canvas></details>
+  <details><summary>Как устроено обучение</summary><p class="note">Входы сети: 7 лучей до края полотна (−80°…+80°), скорость, угол к касательной сплайна, смещение от оси, скорость рыскания и снос. Скрытый слой — 8 нейронов, выходы — руль и педаль (газ или тормоз). Всего 122 общих веса и 48 поправок «памяти поворотов» для 24 участков, отдельных на каждой трассе.</p><p class="note">Старт с учителя: классический ИИ проезжает несколько кругов (часть — с помехами на руле, чтобы сеть видела и исправление ошибок), сеть обучается повторять его руль и педали, включая поправки участков. Эволюция стартует с пилота, который уже проходит круг, и за 5–10 поколений обычно обгоняет учителя. Отсечка по темпу снимает карты, которые отстают от чемпиона, — поколения идут быстрее.</p><p class="note">Физика у ИИ та же, что у игрока: шины, жёсткий мост, тормоз только на заднюю ось. Фитнес — пройденная по сплайну дистанция; за полный круг — бонус за время. Касание покрышек, трава дольше допуска, застой и езда назад завершают попытку. Обучение каждой трассы и класса хранится отдельно.</p></details>
+  <details open><summary>Сохранения и данные</summary><p class="note" id="saveInfo">Автосохранение в браузер по интервалу и при смене поколения; облако получает копию по интервалу выгрузки.</p>
+    <div class="data-btns"><button class="btn sm" id="saveNow">Сохранить</button><button class="btn sm" id="load">Загрузить</button><button class="btn sm" id="cloudPush">Облако ↑</button><button class="btn sm" id="cloudPull">Облако ↓</button><button class="btn sm" id="export">Экспорт JSON</button><button class="btn sm" id="import">Импорт JSON</button><button class="btn sm danger" id="delete">Удалить обучение</button></div>
+    <input id="file" type="file" accept=".json,application/json" hidden><p id="dataStatus" role="status"></p></details>
+</aside>
+<div id="labCaption" hidden></div>
+
+<!-- Гараж и рекорды -->
+<section id="garage" class="overlay" hidden>
+  <div class="garage-card">
+    <div class="screen-head"><div><div class="eyebrow">Гараж</div><h2>Пилоты и рекорды</h2></div><button class="btn sm" id="closeGarage">Закрыть ×</button></div>
+    <div class="lab-row"><label>Трасса<select id="boardTrack"></select></label><label>Класс<select id="boardClass"><option value="junior">Rotax Junior</option><option value="ok">OK Senior</option><option value="kz2">KZ2</option></select></label></div>
+    <div class="garage-grid">
+      <section id="garagePilots">
+        <h3>Обученные пилоты</h3><select id="brainSelect" aria-label="Сохранённый пилот"></select><p class="note" id="brainInfoText"></p>
+        <div class="lab-row"><button class="btn primary sm" id="testBrain">Посмотреть заезд</button><button class="btn sm" id="adaptBrain">Дообучать копию</button></div>
+        <details><summary>Сохранить снимок чемпиона</summary><label class="field">Название пилота<input type="text" id="brainName" maxlength="60" placeholder="Мой пилот"></label><button class="btn sm" id="snapshotBrain" style="margin-top:8px">Сохранить снимок</button></details>
+        <p class="note">Лучшие пилоты сохраняются автоматически. При переносе на другую трассу общие навыки сети остаются, а «память поворотов» у каждой трассы своя.</p>
+      </section>
+      <section>
+        <h3 id="boardMap">Рекорды трассы</h3>
+        <h3 style="margin-top:4px;color:var(--chalk)">Личные заезды</h3><div class="board-scroll"><table class="mini"><thead><tr><th>#</th><th>Пилот</th><th>Время</th><th>Дата</th></tr></thead><tbody id="board-human"></tbody></table></div>
+        <h3 style="color:var(--chalk)">Общая таблица · все игроки</h3><div class="board-scroll"><table class="mini"><thead><tr><th>#</th><th>Пилот</th><th>Время</th><th>Дата</th></tr></thead><tbody id="board-cloud"><tr><td colspan="4">Загрузка…</td></tr></tbody></table></div>
+        <div id="aiBoardWrap"><h3 style="color:var(--chalk)">Пилоты ИИ</h3><div class="board-scroll"><table class="mini"><thead><tr><th>#</th><th>Пилот</th><th>Время</th><th>Дата</th></tr></thead><tbody id="board-ai"></tbody></table></div></div>
+        <button class="btn sm danger" id="clearBoard">Очистить рекорды этой трассы</button>
+      </section>
+    </div>
+  </div>
+</section>
+
+<section id="loginCard" class="overlay" hidden><div class="modal-card"><div class="eyebrow">Закрытая зона</div><h2>Вход в лабораторию</h2><p class="note">Обучение ИИ, гараж пилотов и облачные данные доступны только владельцу.</p>
+  <label class="field">Логин<input type="text" id="loginUser" autocomplete="username" value="Admin"></label>
+  <label class="field">Пароль<input type="password" id="loginPass" autocomplete="current-password"></label>
+  <label class="check"><input type="checkbox" id="loginRemember" checked> Запомнить на этом устройстве</label>
+  <p id="loginError" class="error" role="alert"></p>
+  <div class="actions"><button class="btn" id="loginCancel">Отмена</button><button class="btn primary" id="loginOk">Войти</button></div></div></section>
+
+<section id="askCard" class="overlay" hidden><div class="modal-card"><h2>Подтверждение</h2><p class="note" id="askText"></p><div class="actions"><button class="btn" id="askCancel">Отмена</button><button class="btn primary" id="askOk">Да</button></div></div></section>
+
+<!-- HUD -->
+<div id="hud" hidden>
+  <div class="speedlines" id="speedlines"></div>
+  <div class="hitflash" id="hitflash"></div>
+  <div class="hud-pos" id="hudPos"><div class="pos-big" id="pos-big"><span id="pos-num">1</span><small id="pos-of">/8</small></div><div class="lap-line" id="lapLine">Круг <b id="lap-num">1/3</b></div></div>
+  <div class="watch-tag" id="watchTag" hidden>Нейропилот</div>
+  <div class="tower" id="tower"></div>
+  <div class="item-slot" id="item-slot" hidden><div id="item-icon"></div><span class="cnt" id="item-cnt" hidden></span></div>
+  <div class="timing" id="timing">
+    <div class="t-row now"><span>Текущий</span><b id="lt-now">0:00.000</b></div>
+    <div class="t-delta" id="lt-delta"></div>
+    <div class="t-row"><span>Последний</span><b id="lt-last">–:––.–––</b></div>
+    <div class="t-row"><span>Лучший</span><b id="lt-best">–:––.–––</b></div>
+    <div class="t-row"><span>Рекорд трассы</span><b id="lt-rec" class="purple">–:––.–––</b></div>
+    <div class="sectors" id="sectors"><div class="sec"><span>S1</span><b>—</b></div><div class="sec"><span>S2</span><b>—</b></div><div class="sec"><span>S3</span><b>—</b></div></div>
+  </div>
+  <div class="fps" id="fps" hidden></div>
+  <div class="lights" id="lights" hidden><div class="col"><i></i><i></i></div><div class="col"><i></i><i></i></div><div class="col"><i></i><i></i></div><div class="col"><i></i><i></i></div><div class="col"><i></i><i></i></div></div>
+  <div class="msg-wrap" id="msgs" aria-live="polite"></div>
+  <div class="wrongway" id="wrongway" hidden>Неверное направление</div>
+  <canvas class="minimap" id="minimap" width="340" height="340"></canvas>
+  <div class="dash"><span class="class-tag" id="classTag">OK</span><div class="leds" id="leds"></div>
+    <div class="dash-main"><div><div class="speed" id="speed">0</div><div class="speed-u">км/ч</div></div><div class="gearbox"><div class="gear" id="gear">—</div><div class="rpm" id="rpm">0 об/мин</div></div></div></div>
+</div>
+
+<div id="touch" hidden>
+  <button class="tl" data-touch="left" aria-label="Влево">◀</button>
+  <button class="tr" data-touch="right" aria-label="Вправо">▶</button>
+  <button class="tb" data-touch="brake">Тормоз</button>
+  <button class="ti" data-touch="item">Предмет</button>
+  <button class="tp" data-touch="pause" aria-label="Пауза">II</button>
+</div>
+
+<noscript><div style="position:fixed;inset:0;display:grid;place-items:center;padding:16px;text-align:center">Для игры нужен JavaScript и WebGL.</div></noscript>
+<script src="online-config.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

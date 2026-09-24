@@ -1,0 +1,15 @@
+{
+  "name": "apex-karting",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Апекс Картинг — прототип спортивного картинга в браузере (Three.js): реальные картодромы, физика карта, нейроэволюция ИИ",
+  "scripts": {
+    "build": "esbuild src/main.js --bundle --minify --format=iife --target=es2019 --legal-comments=eof --outfile=game.js",
+    "dev": "esbuild src/main.js --bundle --format=iife --target=es2019 --sourcemap --outfile=game.js --watch --servedir=.",
+    "serve": "npx http-server -p 8080 -c-1 ."
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "three": "0.170.0"
+  }
+}
