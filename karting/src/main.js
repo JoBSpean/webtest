@@ -11,6 +11,7 @@ import { AudioEngine } from './audio.js';
 import { Input } from './input.js';
 import { CameraRig } from './camera.js';
 import { Store } from './storage.js';
+import { Account } from './account.js';
 import { TRACKS, REAL_TRACKS } from './trackdata.js';
 import { DRIVERS, CUP_POINTS } from './config.js';
 import { CLASSES, shift as shiftGear } from './physics.js';
@@ -76,6 +77,7 @@ class App {
     this.showScreen('title');
     this.last = performance.now();
     requestAnimationFrame((t) => this.loop(t));
+    this.account = new Account(this);
   }
 
   applyCamCfg() {
@@ -462,6 +464,7 @@ class App {
       });
     });
     addEventListener('keydown', (e) => {
+      if ($('accountDialog')?.open) return;
       if (e.code === 'Escape' && this.lab.handleEscape()) { e.preventDefault(); return; }
       if (this.lab.modalOpen()) return;
       const typing = e.target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName);
@@ -664,6 +667,7 @@ class App {
 
   // навигация по меню с геймпада
   menuNav() {
+    if ($('accountDialog')?.open) return;
     if (!this.curScreen) return;
     const nav = this.input.pollMenu();
     if (!(nav.up || nav.down || nav.left || nav.right || nav.ok || nav.back)) return;
