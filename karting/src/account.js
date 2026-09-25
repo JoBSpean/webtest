@@ -27,7 +27,13 @@ export class Account {
     $('accountClose').onclick = () => dialog.close();
     dialog.addEventListener('close', () => { $('accountPassword').value = ''; });
     $('accountSwitch').onclick = () => { this.mode = this.mode === 'login' ? 'signup' : 'login'; this.render(); };
-    $('accountReset').onclick = () => { this.mode = 'reset'; this.render(); };
+    $('accountReset').onclick = () => {
+      if (window.APEX_ONLINE?.emailRecoveryEnabled === false) {
+        this.message('Восстановление пароля по почте пока недоступно. Сохраните пароль в надёжном месте.');
+        return;
+      }
+      this.mode = 'reset'; this.render();
+    };
     $('accountForm').onsubmit = (event) => { event.preventDefault(); this.submit(); };
     $('accountLogout').onclick = async () => {
       const { error } = await Online.getClient().auth.signOut({ scope: 'local' });

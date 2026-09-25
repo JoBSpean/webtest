@@ -2,4 +2,6 @@
 window.APEX_ONLINE = {
   url: 'https://kobyyalfmgyidmstsufb.supabase.co',
   key: 'sb_publishable_oexkec3QZ3U5FrK4dMfCsw_aYtqV-p7',
+  // Enable after configuring a production SMTP provider in Supabase Auth.
+  emailRecoveryEnabled: false,
 };
