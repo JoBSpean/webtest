@@ -39,6 +39,10 @@ export class Account {
     setInterval(() => { if (this.owner) this.sync(); }, 60000);
   }
   message(text) { $('accountMessage').textContent = text; }
+  setBusy(busy) {
+    this.busy = busy;
+    for (const id of ['accountSubmit', 'accountSwitch', 'accountReset', 'accountLogout']) $(id).disabled = busy || !Online.onlineEnabled();
+  }
   render() {
     const signed = !!Online.currentUser();
     const recovery = this.mode === 'recovery';
@@ -53,7 +57,7 @@ export class Account {
     $('accountPassword').required = !profile && this.mode !== 'reset';
     $('accountPassword').autocomplete = this.mode === 'login' ? 'current-password' : 'new-password';
     $('accountSubmit').hidden = profile;
-    $('accountSubmit').disabled = !ready;
+    this.setBusy(!!this.busy);
     $('accountSubmit').textContent = { login: 'Войти', signup: 'Зарегистрироваться', reset: 'Отправить письмо', recovery: 'Сохранить пароль' }[this.mode];
     $('accountSwitch').hidden = profile || recovery;
     $('accountSwitch').textContent = this.mode === 'login' ? 'Создать аккаунт' : 'Вернуться ко входу';
@@ -63,25 +67,26 @@ export class Account {
     this.message(ready ? '' : 'Онлайн-вход пока не подключён. Гостевой режим доступен.');
   }
   async submit() {
-    const db = Online.getClient(); if (!db) return;
-    $('accountSubmit').disabled = true;
+    const db = Online.getClient(); if (!db || this.busy) return;
+    this.setBusy(true);
+    const mode = this.mode;
     const email = $('accountEmail').value.trim(), password = $('accountPassword').value;
     const redirectTo = location.origin + location.pathname;
     try {
       let result;
-      if (this.mode === 'signup') result = await db.auth.signUp({ email, password, options: { data: { display_name: $('accountName').value.trim() }, emailRedirectTo: redirectTo } });
-      else if (this.mode === 'reset') result = await db.auth.resetPasswordForEmail(email, { redirectTo });
-      else if (this.mode === 'recovery') result = await db.auth.updateUser({ password });
+      if (mode === 'signup') result = await db.auth.signUp({ email, password, options: { data: { display_name: $('accountName').value.trim() }, emailRedirectTo: redirectTo } });
+      else if (mode === 'reset') result = await db.auth.resetPasswordForEmail(email, { redirectTo });
+      else if (mode === 'recovery') result = await db.auth.updateUser({ password });
       else result = await db.auth.signInWithPassword({ email, password });
       if (result.error) throw result.error;
       $('accountPassword').value = '';
-      if (this.mode === 'signup' && !result.data.session) this.message('Проверьте почту: перейдите по ссылке подтверждения, затем войдите.');
-      else if (this.mode === 'reset') this.message('Если аккаунт существует, на почту придёт ссылка для смены пароля.');
+      if (mode === 'signup' && !result.data.session) this.message('Проверьте почту: перейдите по ссылке подтверждения, затем войдите.');
+      else if (mode === 'reset') this.message('Если аккаунт существует, на почту придёт ссылка для смены пароля.');
       else { this.mode = 'login'; $('accountDialog').close(); }
     } catch (error) {
       const messages = { invalid_credentials: 'Неверная почта или пароль.', email_not_confirmed: 'Сначала подтвердите почту по ссылке из письма.', user_already_exists: 'Аккаунт уже существует. Попробуйте войти.', over_email_send_rate_limit: 'Слишком много писем. Попробуйте позже.', weak_password: 'Выберите более надёжный пароль.' };
       this.message(messages[error.code] || 'Не удалось выполнить запрос. Проверьте подключение и попробуйте ещё раз.');
-    } finally { $('accountSubmit').disabled = false; }
+    } finally { this.setBusy(false); }
   }
   async changed(user, event) {
     const id = user?.id || null;

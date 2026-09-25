@@ -34,7 +34,7 @@ test('database enforces authentication, ownership, best time and valid values', 
       create function auth.jwt() returns jsonb language sql as $$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb $$;
       grant usage on schema public, auth to anon, authenticated;
       insert into auth.users values ('00000000-0000-0000-0000-000000000001'), ('00000000-0000-0000-0000-000000000002');`);
-    await db.exec(await readFile(new URL('../supabase/migrations/202609250001_accounts_and_records.sql', import.meta.url), 'utf8'));
+    await db.exec(await readFile(new URL('../supabase/migrations/20260925001153_accounts_and_records.sql', import.meta.url), 'utf8'));
     await db.exec('set role anon');
     assert.equal((await db.query('select * from karting_records')).rows.length, 0);
     await assert.rejects(db.query("select submit_karting_lap('lonato','ok','Guest',50000)"));

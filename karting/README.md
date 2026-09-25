@@ -117,7 +117,7 @@ npm run dev     # сборка с отслеживанием и локальны
 
 ### Подключение
 
-1. Создайте проект Supabase и примените файл `supabase/migrations/202609250001_accounts_and_records.sql` через SQL Editor или миграции CLI.
+1. Для новой установки создайте проект Supabase и примените файл `supabase/migrations/20260925001153_accounts_and_records.sql` через SQL Editor или миграции CLI. В проекте `apex-karting` (`kobyyalfmgyidmstsufb`) эта миграция уже применена; повторять её не нужно.
 2. В Authentication включите Email и регистрацию. Site URL и разрешённый Redirect URL: `https://jobspean.github.io/webtest/karting/`. Для локальной проверки отдельно разрешите `http://127.0.0.1:8080/karting/`.
 3. Запишите Project URL и **publishable key** (либо legacy anon key) в `online-config.js`. Секретный/service_role ключ на сайте использовать нельзя.
 4. Для публичного запуска настройте почтовый провайдер Supabase Auth и проверьте доставку подтверждения и восстановления.

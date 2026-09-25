@@ -1,4 +1,5 @@
-// Общая таблица рекордов для публичного сайта. Заполните после создания базы
-// Supabase (инструкция в README, раздел «Сайт и общие рекорды»). Пустые значения —
-// рекорды хранятся только в браузере игрока.
-window.APEX_ONLINE = { url: '', key: '' };
+// Public browser configuration. Never put a service_role or secret key here.
+window.APEX_ONLINE = {
+  url: 'https://kobyyalfmgyidmstsufb.supabase.co',
+  key: 'sb_publishable_oexkec3QZ3U5FrK4dMfCsw_aYtqV-p7',
+};
