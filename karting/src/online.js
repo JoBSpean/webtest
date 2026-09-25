@@ -1,36 +1,51 @@
-// Общая таблица рекордов для публичного сайта (Supabase REST). Настройка — в
-// online-config.js: window.APEX_ONLINE = { url: 'https://xxx.supabase.co', key: 'anon-ключ' }.
-// Без настройки игра работает на локальных рекордах; в артефакте claude.ai
-// таблицу ведёт встроенное хранилище (lab.js).
-const cfg = () => { try { const c = window.APEX_ONLINE; return c && c.url && c.key ? c : null; } catch (e) { return null; } };
-export const onlineEnabled = () => !!cfg();
-
-async function req(path, opts = {}) {
-  const c = cfg();
-  const r = await fetch(c.url.replace(/\/$/, '') + '/rest/v1/' + path, {
-    ...opts,
-    headers: { apikey: c.key, Authorization: 'Bearer ' + c.key, 'Content-Type': 'application/json', ...(opts.headers || {}) },
-  });
-  if (!r.ok) throw Error('HTTP ' + r.status);
-  return r.status === 204 ? null : r.json();
+import { createClient } from '@supabase/supabase-js';
+let client;
+let user = null;
+export function getClient() {
+  const c = window.APEX_ONLINE;
+  if (!c?.url || !c?.key) return null;
+  return client || (client = createClient(c.url, c.key));
 }
-
-// лучший круг игрока: одна строка на (устройство, трасса, класс), обновляется только на более быстрый
-export async function pushScore(client, track, cls, name, time) {
-  if (!cfg()) return false;
-  const t = Math.round(time * 1000) / 1000;
-  const old = await req(`lap_records?select=time&client_id=eq.${encodeURIComponent(client)}&track=eq.${track}&cls=eq.${cls}`);
-  if (old && old[0] && old[0].time <= t) return false;
-  await req('lap_records?on_conflict=client_id,track,cls', {
-    method: 'POST',
-    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify({ client_id: client, track, cls, name: String(name).slice(0, 30), time: t, date: new Date().toISOString() }),
+export const onlineEnabled = () => !!getClient();
+export const currentUser = () => user;
+export function watchAuth(callback) {
+  const db = getClient();
+  if (!db) { callback(null); return; }
+  db.auth.onAuthStateChange((event, session) => {
+    user = session?.user || null;
+    const next = user;
+    // Requests must run outside the auth callback's internal lock.
+    setTimeout(() => callback(next, event), 0);
   });
+}
+export async function pushScore(owner, track, cls, name, time) {
+  const db = getClient();
+  if (!db || !user || user.id !== owner) return false;
+  const { data, error } = await db.auth.getSession();
+  if (error) throw error;
+  if (data.session?.user.id !== owner || user?.id !== owner) return false;
+  // Freeze the token for this lap: switching accounts must not change its owner.
+  const config = window.APEX_ONLINE;
+  const response = await fetch(config.url.replace(/\/$/, '') + '/rest/v1/rpc/submit_karting_lap', {
+    method: 'POST',
+    headers: { apikey: config.key, Authorization: 'Bearer ' + data.session.access_token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+    p_track: track, p_cls: cls, p_name: String(name).trim().slice(0, 30) || 'Игрок',
+    p_time_ms: Math.round(time * 1000),
+    }),
+  });
+  if (!response.ok) throw new Error('Не удалось сохранить рекорд: ' + response.status);
   return true;
 }
-
+const mapRow = (r) => ({ ...r, name: r.name || 'Игрок', time: r.time_ms / 1000, date: Date.parse(r.updated_at) });
 export async function pullScores(track, cls, limit = 30) {
-  if (!cfg()) return null;
-  const rows = await req(`lap_records?select=name,time,date&track=eq.${track}&cls=eq.${cls}&order=time.asc&limit=${limit}`);
-  return (rows || []).map((r) => ({ name: String(r.name || 'Игрок'), time: Number(r.time), date: Date.parse(r.date) || 0 })).filter((r) => Number.isFinite(r.time));
+  const { data, error } = await getClient().from('karting_records').select('name,time_ms,updated_at')
+    .eq('track', track).eq('cls', cls).order('time_ms').order('updated_at').limit(limit);
+  if (error) throw error;
+  return data.map(mapRow);
+}
+export async function pullPersonal(owner) {
+  const { data, error } = await getClient().from('karting_records').select('track,cls,name,time_ms,updated_at').eq('user_id', owner);
+  if (error) throw error;
+  return data.map(mapRow);
 }

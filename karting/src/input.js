@@ -28,6 +28,7 @@ export class Input {
     this.gamepadActive = false;
     this.state = { steer: 0, throttle: 0, brake: 0, item: false, look: false, camera: false, reset: false, pause: false, mute: false, shiftUp: false, shiftDown: false, skip: false };
     addEventListener('keydown', (e) => {
+      if (document.getElementById('accountDialog')?.open) return;
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
       if (!e.repeat) this.pressed.add(e.code);
       this.down.add(e.code);
