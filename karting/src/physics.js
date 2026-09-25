@@ -126,12 +126,15 @@ export function stepDynamics(k, inp, dt, opts) {
   if (stab) {
     const cur = k.steerIn || 0;
     const up = Math.abs(steerIn) > Math.abs(cur) && Math.sign(steerIn) === Math.sign(cur || steerIn);
-    k.steerIn = cur + clamp(steerIn - cur, -dt * (up ? 4.2 : 8), dt * (up ? 4.2 : 8));
+    // на малой скорости руль набирается медленнее: карт не «клюёт» внутрь поворота
+    const upRate = 2.2 + 2.4 * clamp(Math.abs(k.u) / 16, 0, 1);
+    k.steerIn = cur + clamp(steerIn - cur, -dt * (up ? upRate : 8), dt * (up ? upRate : 8));
     steerIn = k.steerIn;
   }
 
   // руль: привод с ограниченной скоростью поворота колёс
   let lim = steerLimit(k.u, assist);
+  if (stab) lim *= 0.55 + 0.45 * smooth(2, 12, Math.abs(k.u)); // меньше угол колёс на малой скорости
   // контрруль при заносе разрешаем почти на полный угол
   if (k.slipR > 0.9 && inp.steer * k.w > 0) lim = Math.max(lim, 0.28);
   const target = -steerIn * lim;
@@ -140,7 +143,7 @@ export function stepDynamics(k, inp, dt, opts) {
   k.steer = steerIn;
   // педали: короткая инерция привода газа и тормоза
   k.throttle += clamp(inp.throttle - k.throttle, -dt * 12, dt * 10);
-  k.brake += clamp(inp.brake - k.brake, -dt * 14, dt * (stab ? 4 : 9));
+  k.brake += clamp(inp.brake - k.brake, -dt * 14, dt * (stab ? 2.4 : 9));
 
   const spinning = k.spinT > 0;
   const muS = C.mu * SURF.mu[k.surface] * (spinning ? 0.35 : 1);
