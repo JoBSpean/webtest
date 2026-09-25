@@ -37,13 +37,23 @@ export class Store {
     } catch (e) { /* хранилище недоступно — играем без сохранений */ }
   }
   get settings() { return this.data.settings; }
+  setAccount(id) {
+    this.save();
+    this.accountId = id || null;
+    try { this.accountRecords = JSON.parse(localStorage.getItem(KEY + ':user:' + id) || '{}'); }
+    catch { this.accountRecords = {}; }
+  }
+  get records() { return this.accountId ? this.accountRecords : this.data.records; }
   save() {
+    if (this.accountId) {
+      try { localStorage.setItem(KEY + ':user:' + this.accountId, JSON.stringify(this.accountRecords)); } catch {}
+    }
     try { localStorage.setItem(KEY, JSON.stringify(this.data)); } catch (e) { /* нет места или доступа */ }
   }
   setSettings(patch) { Object.assign(this.data.settings, patch); this.save(); }
   // key = 'трасса:класс'
   record(key) {
-    return this.data.records[key] || (this.data.records[key] = { bestLap: null, ghost: null, trace: null, driverId: null, bestRace: {}, bestSectors: [null, null, null] });
+    return this.records[key] || (this.records[key] = { bestLap: null, ghost: null, trace: null, driverId: null, bestRace: {}, bestSectors: [null, null, null] });
   }
   saveSector(key, i, t) {
     const r = this.record(key);

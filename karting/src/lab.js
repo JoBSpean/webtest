@@ -236,7 +236,7 @@ export class Lab {
     const a = this.admin;
     $('adminBtn').textContent = a ? 'Выйти' : 'Админ-зона';
     $('adminBtn').classList.toggle('accent', !a);
-    $('lockChip').textContent = a ? 'Админ · полный доступ' : 'Гостевой режим';
+    $('lockChip').textContent = a ? 'Админ · полный доступ' : (Online.currentUser() ? 'Аккаунт пилота' : 'Гостевой режим');
     $('lockChip').className = 'chip ' + (a ? 'ok' : 'warn');
     $('garageBtn').textContent = a ? 'Гараж / рекорды' : 'Рекорды';
     $('garagePilots').hidden = !a;
@@ -295,13 +295,14 @@ export class Lab {
 
   // личный лучший круг игрока: таблица гаража + облако
   onPlayerLap(key, time, driverName, clsShort, sid) {
+    if (this.app.store.accountId) { this.app.account?.lap(key, time); return; }
     this.addResult(key, 'human', time, this.app.playerName(), null, driverName + ' · ' + clsShort, 0, sid);
     this.saveWorld();
     const mine = this.world.mine[key];
     if (mine == null || time < mine) {
       this.world.mine[key] = time;
       this.saveWorld();
-      this.cloudPushScore(key, time);
+      // Guest laps stay in this browser and are never published.
     }
   }
 
@@ -823,14 +824,21 @@ export class Lab {
   refreshBoards() {
     const key = this.garageKey, b = this.board(key), { t, c } = splitKey(key);
     const rowHTML = (r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}<small>${esc(r.note)}${r.generation ? ' · поколение ' + r.generation : ''}</small></td><td>${fmtTime(r.time)}</td><td>${new Date(r.date).toLocaleDateString('ru-RU')}</td></tr>`;
-    for (const kind of ['human', 'ai']) $('board-' + kind).innerHTML = b[kind].length ? b[kind].slice(0, 30).map(rowHTML).join('') : '<tr><td colspan="4">На этой трассе в этом классе ещё нет результатов.</td></tr>';
+    const personal = this.app.store.record(key);
+    const human = this.app.store.accountId ? (personal.bestLap ? [{ name: personal.cloudName || this.app.playerName(), time: personal.bestLap, date: personal.cloudDate || Date.now(), note: personal.pendingTime ? 'Ожидает отправки' : 'Личный рекорд' }] : []) : b.human;
+    for (const kind of ['human', 'ai']) {
+      const rows = kind === 'human' ? human : b.ai;
+      $('board-' + kind).innerHTML = rows.length ? rows.slice(0, 30).map(rowHTML).join('') : '<tr><td colspan="4">На этой трассе в этом классе ещё нет результатов.</td></tr>';
+    }
     $('boardMap').textContent = 'Рекорды · ' + trackName(t) + ' · ' + CLASSES[c].name;
   }
   async clearBoard() {
     const { t, c } = splitKey(this.garageKey);
     if (!(await this.ask(`Удалить все локальные результаты «${trackName(t)}» в классе ${CLASSES[c].name}? Обучение и пилоты останутся.`, 'Очистить'))) return;
-    this.world.boards[this.garageKey] = { human: [], ai: [] };
-    delete this.world.mine[this.garageKey];
+    if (!this.app.store.accountId) {
+      this.world.boards[this.garageKey] = { human: [], ai: [] };
+      delete this.world.mine[this.garageKey];
+    }
     const rec = this.app.store.record(this.garageKey);
     Object.assign(rec, { bestLap: null, ghost: null, trace: null, bestSectors: [null, null, null], bestRace: {} });
     this.app.store.save();
@@ -889,7 +897,7 @@ export class Lab {
     let api = null;
     try { api = window.claude && typeof window.claude.use === 'function' ? window.claude : null; } catch (e) { api = null; }
     if (!api) {
-      if (Online.onlineEnabled()) { this.setCloud('online'); for (const key of Object.keys(this.world.mine)) this.cloudPushScore(key, this.world.mine[key]); }
+      if (Online.onlineEnabled()) this.setCloud('online');
       else this.setCloud('local');
       return;
     }
@@ -900,7 +908,7 @@ export class Lab {
     this.setCloud(this.cloudOwner ? 'owner' : 'guest');
     if (!$('garage').hidden) this.cloudPullBoards();
     // рекорды, поставленные до подключения облака
-    for (const key of Object.keys(this.world.mine)) this.cloudPushScore(key, this.world.mine[key], true);
+    // Guest records are never uploaded.
     await this.cloudSync();
   }
   async cloudSync() {
@@ -987,21 +995,6 @@ export class Lab {
       if (!$('garage').hidden) { this.refreshGarage(); this.refreshBoards(); }
       return true;
     } catch (e) { return false; }
-  }
-  async cloudPushScore(key, time, quiet = false) {
-    if (!validKey(key)) return;
-    const { t, c } = splitKey(key);
-    if (!this.db) {
-      if (!Online.onlineEnabled()) return;
-      try { await Online.pushScore(this.clientID, t, c, this.app.playerName(), time); if (!$('garage').hidden && key === this.garageKey) this.cloudPullBoards(); } catch (e) { /* сеть */ }
-      return;
-    }
-    try {
-      const ref = this.db.collection('scores/' + docKey(t, c) + '/rows').doc(this.clientID);
-      if (quiet) { const s = await ref.get(); if (s.exists && Number(s.data().time) <= time) return; }
-      await ref.set({ name: this.app.playerName(), time, date: Date.now(), track: t, cls: c });
-      if (!$('garage').hidden && key === this.garageKey) this.cloudPullBoards();
-    } catch (e) { /* гость без права записи или сеть */ }
   }
   async cloudPullBoards() {
     const body = $('board-cloud');
