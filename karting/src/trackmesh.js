@@ -440,11 +440,11 @@ function buildRealTrack(geom, theme, quality) {
 
   // пит-лейн: полотно, пит-стена, шатры команд
   if (P) {
-    const pitRoad = new THREE.Mesh(pitRibbon(P, -P.half, P.half, -0.006, -0.006, 11), new THREE.MeshStandardMaterial({ map: kartAsphaltTexture((theme.asphaltTone || 62) + 6), roughness: 0.9, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }));
+    const pitRoad = new THREE.Mesh(pitRibbon(P, -P.half, P.half, 0.004, 0.004, 11), new THREE.MeshStandardMaterial({ map: kartAsphaltTexture((theme.asphaltTone || 62) + 6), roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -0.5, polygonOffsetUnits: -1 }));
     pitRoad.receiveShadow = shadows;
     group.add(pitRoad);
     const lineMat = new THREE.MeshBasicMaterial({ color: 0xf2f2f2, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
-    const outerLine = new THREE.Mesh(pitRibbon(P, P.side * (P.half - 0.25), P.side * (P.half - 0.1), 0.004, 0.004, 5), lineMat);
+    const outerLine = new THREE.Mesh(pitRibbon(P, P.side * (P.half - 0.25), P.side * (P.half - 0.1), 0.012, 0.012, 5), lineMat);
     group.add(outerLine);
     // пит-стена между трассой и пит-лейном
     const wallMat = new THREE.MeshStandardMaterial({ map: concreteTexture(), roughness: 0.8, side: THREE.DoubleSide });

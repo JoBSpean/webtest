@@ -42,7 +42,7 @@ class App {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     setMaxAnisotropy(Math.min(8, this.renderer.capabilities.getMaxAnisotropy()));
-    this.camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 3000);
+    this.camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.25, 2000);
     this.camRig = new CameraRig(this.camera);
     this.camRig.mode = this.settings.camera;
     this.applyCamCfg();

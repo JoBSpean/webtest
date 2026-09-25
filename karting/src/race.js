@@ -200,7 +200,15 @@ export class Race {
 
   copyWatch() {
     const c = this.watchCar, k = this.watchKart;
-    for (const f of ['x', 'y', 'z', 'h', 'u', 'v', 'w', 'delta', 'lift', 'sliding', 'surface', 'onKerb', 'lock', 'spin', 'ax', 'slope', 'trackHead', 'rpm', 'gear', 's', 'd', 'progress', 'throttle', 'brake', 'slipR', 'slipF']) k[f] = c[f];
+    for (const f of ['x', 'y', 'z', 'h', 'u', 'v', 'w', 'vx', 'vz', 'delta', 'lift', 'sliding', 'surface', 'onKerb', 'lock', 'spin', 'ax', 'slope', 'trackHead', 'rpm', 'gear', 's', 'd', 'progress', 'throttle', 'brake', 'slipR', 'slipF', 'steerIn']) k[f] = c[f] ?? k[f] ?? 0;
+    // сим идёт шагами 1/60 с, экран — с частотой монитора: позицию между шагами интерполируем, иначе модель дёргается
+    const p = this.watchPrev;
+    if (p && c.alive) {
+      const a = Math.min(1, this.watchAcc / NN.DT);
+      k.x = p.x + (c.x - p.x) * a; k.y = p.y + (c.y - p.y) * a; k.z = p.z + (c.z - p.z) * a;
+      let dh = c.h - p.h; if (dh > Math.PI) dh -= Math.PI * 2; if (dh < -Math.PI) dh += Math.PI * 2;
+      k.h = p.h + dh * a;
+    }
   }
 
   // ---------- события ----------
@@ -329,6 +337,7 @@ export class Race {
     if (c.alive) {
       this.watchAcc = Math.min(this.watchAcc + dt, 0.25);
       while (this.watchAcc >= NN.DT && c.alive) {
+        this.watchPrev = { x: c.x, y: c.y, z: c.z, h: c.h };
         NN.tickCar(c, this.geom, this.watchCfg, false, this.watchCfg.memory);
         if (c.t >= this.watchCfg.timeout || c.stale > 8) c.alive = false;
         this.watchAcc -= NN.DT;
