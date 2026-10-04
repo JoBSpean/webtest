@@ -11,6 +11,20 @@
 	- Закрыть меню из другого скрипта: _G.CloseMainMenu()
 ]]
 
+--[[
+	ЧТО ГДЕ МЕНЯТЬ (нажмите Ctrl+F в редакторе скрипта и ищите слово слева):
+	  MENU        пункты главного меню слева: названия, оранжевый значок "!" (badge = true)
+	  MODES       карточки экрана PLAY: название, подпись, цвета, какую вкладку открывают (tab)
+	  TAB_ORDER   какие вкладки есть на экране плейлистов и в каком порядке
+	  TAB_INFO    серая подпись под вкладками
+	  PLAYLISTS   плейлисты каждой вкладки; у COMPETITIVE ранг: rank, tier (I-III), division (I-IV)
+	  RANKS       цвета значков рангов
+	  local C =   все цвета меню (кнопки, выделение, синий PLAY)
+	  CAR_YAW     куда смотрит машина (градусы); CAR_X, CAR_Z — где она стоит
+	  CAM_POS     откуда смотрит камера; CAM_LOOK — куда
+	  FW, FL, WH  размеры поля и стен
+]]
+
 local Players      = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local RunService   = game:GetService("RunService")
@@ -55,12 +69,55 @@ local MENU = {
 	{ name = "SETTINGS" },
 }
 
+-- Карточки экрана PLAY. tab = какую вкладку плейлистов открыть (без tab карточка только пишет в Output)
 local MODES = {
-	{ name = "CASUAL",        desc = "Unranked matches",    big = "3V3",  c1 = Color3.fromRGB(20, 140, 255),  c2 = Color3.fromRGB(5, 40, 130) },
-	{ name = "COMPETITIVE",   desc = "Ranked playlists",    big = "RANK", c1 = Color3.fromRGB(150, 80, 255),  c2 = Color3.fromRGB(40, 12, 110) },
-	{ name = "TOURNAMENTS",   desc = "Compete for rewards", big = "CUP",  c1 = Color3.fromRGB(255, 150, 30),  c2 = Color3.fromRGB(140, 45, 0), tag = "NEXT 18:00" },
-	{ name = "PRIVATE MATCH", desc = "Play with friends",   big = "VS",   c1 = Color3.fromRGB(0, 200, 175),   c2 = Color3.fromRGB(0, 70, 80) },
-	{ name = "OFFLINE",       desc = "Play against bots",   big = "BOT",  c1 = Color3.fromRGB(120, 130, 150), c2 = Color3.fromRGB(30, 35, 48) },
+	{ name = "CASUAL",        desc = "Unranked matches",     big = "3V3",  tab = "CASUAL",      c1 = Color3.fromRGB(20, 140, 255),  c2 = Color3.fromRGB(5, 40, 130) },
+	{ name = "COMPETITIVE",   desc = "Ranked playlists",     big = "RANK", tab = "COMPETITIVE", c1 = Color3.fromRGB(150, 80, 255),  c2 = Color3.fromRGB(40, 12, 110) },
+	{ name = "ARCADE",        desc = "Rotating extra modes", big = "MIX",  tab = "ARCADE",      c1 = Color3.fromRGB(255, 70, 140),  c2 = Color3.fromRGB(110, 10, 60) },
+	{ name = "TOURNAMENTS",   desc = "Compete for rewards",  big = "CUP",  c1 = Color3.fromRGB(255, 150, 30),  c2 = Color3.fromRGB(140, 45, 0), tag = "NEXT 18:00" },
+	{ name = "PRIVATE MATCH", desc = "Play with friends",    big = "VS",   c1 = Color3.fromRGB(0, 200, 175),   c2 = Color3.fromRGB(0, 70, 80) },
+	{ name = "PLAY OFFLINE",  desc = "Bots and workshop",    big = "BOT",  c1 = Color3.fromRGB(120, 130, 150), c2 = Color3.fromRGB(30, 35, 48) },
+}
+
+-- Вкладки экрана плейлистов (переключаются кнопками Q / E) и их плейлисты.
+-- rank: UNRANKED, BRONZE, SILVER, GOLD, PLATINUM, DIAMOND, CHAMPION, GRAND CHAMPION, SUPERSONIC LEGEND
+local TAB_ORDER = { "CASUAL", "COMPETITIVE", "ARCADE" }
+local TAB_INFO = {
+	CASUAL      = "UNRANKED MATCHES  •  JUST JUMP IN AND PLAY",
+	COMPETITIVE = "COMPETITIVE SEASON 20  •  SELECT UP TO 6 PLAYLISTS",
+	ARCADE      = "ROTATING EXTRA MODES",
+}
+local PLAYLISTS = {
+	CASUAL = {
+		{ name = "DUEL",     size = "1V1", info = "Unranked" },
+		{ name = "DOUBLES",  size = "2V2", info = "Unranked" },
+		{ name = "STANDARD", size = "3V3", info = "Unranked" },
+		{ name = "CHAOS",    size = "4V4", info = "Unranked" },
+	},
+	COMPETITIVE = { -- Hoops убран из рейтинга
+		{ name = "DUEL",     size = "1V1", rank = "PLATINUM", tier = "II",  division = "III" },
+		{ name = "DOUBLES",  size = "2V2", rank = "DIAMOND",  tier = "III", division = "II" },
+		{ name = "STANDARD", size = "3V3", rank = "CHAMPION", tier = "I",   division = "IV" },
+		{ name = "RUMBLE",   size = "3V3", rank = "GOLD",     tier = "III", division = "I" },
+		{ name = "SNOW DAY", size = "3V3", rank = "UNRANKED" },
+	},
+	ARCADE = {
+		{ name = "HEATSEEKER", size = "2V2", info = "Limited time" },
+		{ name = "SPIKE RUSH", size = "3V3", info = "Limited time" },
+		{ name = "DROPSHOT",   size = "3V3", info = "Rotating mode" },
+	},
+}
+-- цвета значков рангов (верх -> низ)
+local RANKS = {
+	UNRANKED            = { Color3.fromRGB(150, 155, 165), Color3.fromRGB(60, 65, 75) },
+	BRONZE              = { Color3.fromRGB(230, 150, 80),  Color3.fromRGB(120, 60, 20) },
+	SILVER              = { Color3.fromRGB(230, 235, 240), Color3.fromRGB(120, 130, 145) },
+	GOLD                = { Color3.fromRGB(255, 220, 90),  Color3.fromRGB(180, 110, 10) },
+	PLATINUM            = { Color3.fromRGB(140, 240, 240), Color3.fromRGB(30, 120, 150) },
+	DIAMOND             = { Color3.fromRGB(110, 180, 255), Color3.fromRGB(20, 60, 200) },
+	CHAMPION            = { Color3.fromRGB(215, 140, 255), Color3.fromRGB(95, 30, 175) },
+	["GRAND CHAMPION"]  = { Color3.fromRGB(255, 110, 110), Color3.fromRGB(150, 10, 25) },
+	["SUPERSONIC LEGEND"] = { Color3.fromRGB(255, 255, 255), Color3.fromRGB(170, 120, 255) },
 }
 
 local C = {
@@ -707,7 +764,8 @@ addScale(menuCol)
 
 local mainButtons = {}
 local mainSel = 0
-local inPlay = false
+local inPlay = false   -- открыт экран PLAY или плейлисты (кнопки главного меню спрятаны)
+local screen = "main" -- "main" | "play" | "list"
 local openPlay -- объявлена ниже
 
 local y = 0
@@ -875,7 +933,7 @@ do
 	crumb.Size = UDim2.new(1, 0, 0, 22)
 end
 
-local CARD_W, CARD_H, CARD_GAP = 260, 380, 22
+local CARD_W, CARD_H, CARD_GAP = 230, 380, 20
 local row = Instance.new("Frame")
 row.BackgroundTransparency = 1
 row.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -938,6 +996,10 @@ for k, mode in ipairs(MODES) do
 
 	local title = label(face, mode.name, F_HEAVY, 34, C.white)
 	title.TextWrapped = true
+	title.TextScaled = true -- длинные слова (COMPETITIVE) уменьшаются, чтобы влезть
+	local maxSize = Instance.new("UITextSizeConstraint")
+	maxSize.MaxTextSize = 34
+	maxSize.Parent = title
 	title.TextYAlignment = Enum.TextYAlignment.Bottom
 	title.AnchorPoint = Vector2.new(0, 1)
 	title.Position = UDim2.new(0, 20, 1, -46)
@@ -985,47 +1047,427 @@ local function selectCard(k)
 	cardSel = k
 	styleCard(cards[k], true)
 end
+local openList -- экран плейлистов, объявлен ниже
 local function activateCard(k)
 	selectCard(k)
-	print("[Menu] PLAY > " .. MODES[k].name)
+	if MODES[k].tab then
+		openList(MODES[k].tab)
+	else
+		print("[Menu] PLAY > " .. MODES[k].name)
+	end
 end
 for k, c in ipairs(cards) do
-	c.btn.MouseEnter:Connect(function() if inPlay then selectCard(k) end end)
-	c.btn.Activated:Connect(function() if inPlay then activateCard(k) end end)
+	c.btn.MouseEnter:Connect(function() if screen == "play" then selectCard(k) end end)
+	c.btn.Activated:Connect(function() if screen == "play" then activateCard(k) end end)
 end
 
--- кнопка BACK
-local back = Instance.new("TextButton")
-back.Text = ""
-back.AutoButtonColor = false
-back.BorderSizePixel = 0
-back.BackgroundColor3 = C.btnBg
-back.BackgroundTransparency = 0.3
-back.AnchorPoint = Vector2.new(0, 1)
-back.Position = UDim2.new(0, 64, 1, -56)
-back.Size = UDim2.fromOffset(200, 52)
-back.Parent = playScreen
-addScale(back)
-local backStroke = stroke(back, 0.8, 1.5)
-local backLabel = label(back, "‹  BACK", F_HEAVY, 26, C.white)
-backLabel.Position = UDim2.fromOffset(22, 0)
-backLabel.Size = UDim2.new(1, -22, 1, 0)
-back.MouseEnter:Connect(function()
-	tween(back, 0.12, { BackgroundColor3 = C.selBg, BackgroundTransparency = 0 })
-	tween(backLabel, 0.12, { TextColor3 = C.selText })
-	tween(backStroke, 0.12, { Transparency = 0.1 })
+-- маленькая тёмная кнопка внизу экрана (BACK, MULTIPLE SELECTION)
+local function smallButton(parent, text, x, width)
+	local b = Instance.new("TextButton")
+	b.Text = ""
+	b.AutoButtonColor = false
+	b.BorderSizePixel = 0
+	b.BackgroundColor3 = C.btnBg
+	b.BackgroundTransparency = 0.3
+	b.AnchorPoint = Vector2.new(0, 1)
+	b.Position = UDim2.new(0, x, 1, -56)
+	b.Size = UDim2.fromOffset(width, 52)
+	b.Parent = parent
+	addScale(b)
+	local st = stroke(b, 0.8, 1.5)
+	local l = label(b, text, F_HEAVY, 24, C.white)
+	l.Position = UDim2.fromOffset(22, 0)
+	l.Size = UDim2.new(1, -22, 1, 0)
+	b.MouseEnter:Connect(function()
+		tween(b, 0.12, { BackgroundColor3 = C.selBg, BackgroundTransparency = 0 })
+		tween(l, 0.12, { TextColor3 = C.selText })
+		tween(st, 0.12, { Transparency = 0.1 })
+	end)
+	b.MouseLeave:Connect(function()
+		tween(b, 0.12, { BackgroundColor3 = C.btnBg, BackgroundTransparency = 0.3 })
+		tween(l, 0.12, { TextColor3 = C.white })
+		tween(st, 0.12, { Transparency = 0.8 })
+	end)
+	return b, l
+end
+local back = smallButton(playScreen, "‹  BACK", 64, 200)
+
+------------------------------------------------------------------
+-- ЭКРАН ПЛЕЙЛИСТОВ: вкладки CASUAL / COMPETITIVE / ARCADE
+------------------------------------------------------------------
+local listScreen = Instance.new("CanvasGroup")
+listScreen.Name = "PlaylistScreen"
+listScreen.BackgroundColor3 = C.navy
+listScreen.BackgroundTransparency = 0.55
+listScreen.BorderSizePixel = 0
+listScreen.Size = UDim2.fromScale(1, 1)
+listScreen.GroupTransparency = 1
+listScreen.Visible = false
+listScreen.Parent = gui
+
+local LIST_W, ROW_H, ROW_GAP, TAB_W = 900, 84, 10, 250
+local GREY = Color3.fromRGB(170, 190, 220)
+local listCol = Instance.new("Frame")
+listCol.BackgroundTransparency = 1
+listCol.Position = UDim2.fromOffset(64, 56)
+listCol.Size = UDim2.fromOffset(LIST_W, 820)
+listCol.Parent = listScreen
+addScale(listCol)
+
+local listTitle = label(listCol, "PLAY", F_HEAVY, 84, C.white)
+listTitle.Size = UDim2.new(1, 0, 0, 90)
+
+-- вкладки
+local tabBar = Instance.new("Frame")
+tabBar.BackgroundTransparency = 1
+tabBar.Position = UDim2.fromOffset(0, 104)
+tabBar.Size = UDim2.new(1, 0, 0, 56)
+tabBar.Parent = listCol
+local function keyHint(parent, text, x)
+	local k = label(parent, text, F_BOLD, 16, C.white)
+	k.BackgroundColor3 = C.white
+	k.BackgroundTransparency = 0.85
+	k.TextXAlignment = Enum.TextXAlignment.Center
+	k.Position = UDim2.fromOffset(x, 13)
+	k.Size = UDim2.fromOffset(30, 30)
+	Instance.new("UICorner", k).CornerRadius = UDim.new(0, 6)
+	return k
+end
+keyHint(tabBar, "Q", 0)
+local tabs = {}
+for i, name in ipairs(TAB_ORDER) do
+	local t = Instance.new("TextButton")
+	t.Text = ""
+	t.AutoButtonColor = false
+	t.BorderSizePixel = 0
+	t.BackgroundColor3 = C.white
+	t.BackgroundTransparency = 1
+	t.Position = UDim2.fromOffset(44 + (i - 1) * (TAB_W + 6), 0)
+	t.Size = UDim2.fromOffset(TAB_W, 56)
+	t.Parent = tabBar
+	local l = label(t, name, F_HEAVY, 26, C.white)
+	l.Size = UDim2.fromScale(1, 1)
+	l.TextXAlignment = Enum.TextXAlignment.Center
+	local line = Instance.new("Frame")
+	line.BorderSizePixel = 0
+	line.BackgroundColor3 = C.accent
+	line.BackgroundTransparency = 1
+	line.AnchorPoint = Vector2.new(0, 1)
+	line.Position = UDim2.fromScale(0, 1)
+	line.Size = UDim2.new(1, 0, 0, 5)
+	line.Parent = t
+	tabs[i] = { btn = t, label = l, line = line, name = name }
+end
+keyHint(tabBar, "E", 44 + #TAB_ORDER * (TAB_W + 6) + 4)
+
+local tabInfo = label(listCol, "", F_BOLD, 18, GREY)
+tabInfo.Position = UDim2.fromOffset(4, 172)
+tabInfo.Size = UDim2.new(1, 0, 0, 24)
+
+local rowsFrame = Instance.new("Frame")
+rowsFrame.BackgroundTransparency = 1
+rowsFrame.Position = UDim2.fromOffset(0, 210)
+rowsFrame.Size = UDim2.new(1, 0, 0, 600)
+rowsFrame.Parent = listCol
+
+-- значок ранга: ромб с переливом цвета ранга и римской цифрой
+local function rankEmblem(parent, rankName, tier)
+	local colors = RANKS[rankName] or RANKS.UNRANKED
+	local holder = Instance.new("Frame")
+	holder.BackgroundTransparency = 1
+	holder.Size = UDim2.fromOffset(56, 56)
+	holder.Parent = parent
+	local outer = Instance.new("Frame")
+	outer.BorderSizePixel = 0
+	outer.BackgroundColor3 = C.white
+	outer.AnchorPoint = Vector2.new(0.5, 0.5)
+	outer.Position = UDim2.fromScale(0.5, 0.5)
+	outer.Size = UDim2.fromOffset(38, 38)
+	outer.Rotation = 45
+	outer.Parent = holder
+	gradient(outer, ColorSequence.new(colors[1], colors[2]), 90)
+	stroke(outer, 0.4, 1.5)
+	local inner = Instance.new("Frame")
+	inner.BorderSizePixel = 0
+	inner.BackgroundColor3 = Color3.new()
+	inner.BackgroundTransparency = 0.6
+	inner.AnchorPoint = Vector2.new(0.5, 0.5)
+	inner.Position = UDim2.fromScale(0.5, 0.5)
+	inner.Size = UDim2.fromOffset(24, 24)
+	inner.Rotation = 45
+	inner.Parent = holder
+	local t = label(holder, tier or "", F_HEAVY, 17, C.white)
+	t.Size = UDim2.fromScale(1, 1)
+	t.TextXAlignment = Enum.TextXAlignment.Center
+	return holder
+end
+
+local currentTab = "COMPETITIVE"
+local chosen = {}      -- chosen[tab][index] = true
+for _, name in ipairs(TAB_ORDER) do chosen[name] = {} end
+local multi = false    -- MULTIPLE SELECTION
+local focusRow = 1
+local rows = {}
+
+local function styleRow(r)
+	local isChosen = chosen[currentTab][r.index] == true
+	local isFocus = r.index == focusRow
+	tween(r.plate, 0.14, {
+		BackgroundColor3 = isChosen and C.selBg or (isFocus and Color3.fromRGB(30, 55, 100) or C.btnBg),
+		BackgroundTransparency = isChosen and 0.02 or (isFocus and 0.1 or 0.3),
+		Position = UDim2.fromOffset(isFocus and 12 or 0, r.y),
+	})
+	tween(r.stroke, 0.14, { Transparency = (isChosen or isFocus) and 0.1 or 0.85, Thickness = isFocus and 2 or 1.5 })
+	tween(r.accent, 0.14, { BackgroundTransparency = isChosen and 0 or 1 })
+	local main, sub = isChosen and C.selText or C.white, isChosen and Color3.fromRGB(60, 80, 120) or GREY
+	for _, l in ipairs(r.mainTexts) do tween(l, 0.14, { TextColor3 = main }) end
+	for _, l in ipairs(r.subTexts) do tween(l, 0.14, { TextColor3 = sub }) end
+	r.check.Visible = multi
+	r.checkFill.Visible = isChosen
+	local x = multi and 66 or 26
+	r.name.Position = UDim2.fromOffset(x, 8)
+	r.sub.Position = UDim2.fromOffset(x + 2, 50)
+end
+local function restyleRows()
+	for _, r in ipairs(rows) do styleRow(r) end
+end
+
+local function setFocus(i)
+	if i == focusRow or not rows[i] then return end
+	focusRow = i
+	restyleRows()
+end
+
+local function toggleRow(i)
+	if not rows[i] then return end
+	focusRow = i
+	local set = chosen[currentTab]
+	if multi then
+		if set[i] then
+			set[i] = nil
+		else
+			local n = 0
+			for _ in pairs(set) do n += 1 end
+			if n < 6 then set[i] = true end
+		end
+	else
+		table.clear(set)
+		set[i] = true
+	end
+	restyleRows()
+end
+
+local function buildRows()
+	for _, r in ipairs(rows) do r.plate:Destroy() end
+	table.clear(rows)
+	for i, pl in ipairs(PLAYLISTS[currentTab]) do
+		local y = (i - 1) * (ROW_H + ROW_GAP)
+		local plate = Instance.new("TextButton")
+		plate.Text = ""
+		plate.AutoButtonColor = false
+		plate.BorderSizePixel = 0
+		plate.BackgroundColor3 = C.btnBg
+		plate.BackgroundTransparency = 0.3
+		plate.Position = UDim2.fromOffset(-40, y) -- въезжает слева
+		plate.Size = UDim2.fromOffset(LIST_W - 20, ROW_H)
+		plate.Parent = rowsFrame
+
+		local accent = Instance.new("Frame")
+		accent.BorderSizePixel = 0
+		accent.BackgroundColor3 = C.accent
+		accent.BackgroundTransparency = 1
+		accent.Size = UDim2.new(0, 6, 1, 0)
+		accent.ZIndex = 2
+		accent.Parent = plate
+
+		local check = Instance.new("Frame")
+		check.BackgroundTransparency = 1
+		check.AnchorPoint = Vector2.new(0, 0.5)
+		check.Position = UDim2.new(0, 22, 0.5, 0)
+		check.Size = UDim2.fromOffset(28, 28)
+		check.Parent = plate
+		stroke(check, 0.2, 2)
+		local checkFill = Instance.new("Frame")
+		checkFill.BorderSizePixel = 0
+		checkFill.BackgroundColor3 = C.accent
+		checkFill.AnchorPoint = Vector2.new(0.5, 0.5)
+		checkFill.Position = UDim2.fromScale(0.5, 0.5)
+		checkFill.Size = UDim2.fromOffset(18, 18)
+		checkFill.Parent = check
+
+		local name = label(plate, pl.name, F_HEAVY, 34, C.white)
+		name.Size = UDim2.new(0.55, 0, 0, 42)
+		local sub = label(plate, pl.size .. (pl.info and ("  •  " .. string.upper(pl.info)) or ""), F_BOLD, 16, GREY)
+		sub.Size = UDim2.new(0.55, 0, 0, 22)
+
+		local r = { plate = plate, index = i, y = y, accent = accent, check = check, checkFill = checkFill,
+			name = name, sub = sub, stroke = stroke(plate, 0.85, 1.5), mainTexts = { name }, subTexts = { sub } }
+
+		if pl.rank then
+			local unranked = pl.rank == "UNRANKED"
+			local em = rankEmblem(plate, pl.rank, pl.tier)
+			em.AnchorPoint = Vector2.new(1, 0.5)
+			em.Position = UDim2.new(1, -292, 0.5, 0)
+			local rankText = label(plate, unranked and "UNRANKED" or (pl.rank .. " " .. (pl.tier or "")), F_HEAVY, 22, C.white)
+			rankText.AnchorPoint = Vector2.new(1, 0)
+			rankText.Position = UDim2.new(1, -22, 0, 14)
+			rankText.Size = UDim2.fromOffset(266, 30)
+			rankText.TextXAlignment = Enum.TextXAlignment.Right
+			local divText = label(plate, unranked and "PLACEMENT MATCHES" or ("DIVISION " .. (pl.division or "I")), F_BOLD, 15, GREY)
+			divText.AnchorPoint = Vector2.new(1, 0)
+			divText.Position = UDim2.new(1, -22, 0, 46)
+			divText.Size = UDim2.fromOffset(266, 22)
+			divText.TextXAlignment = Enum.TextXAlignment.Right
+			table.insert(r.mainTexts, rankText)
+			table.insert(r.subTexts, divText)
+		end
+
+		plate.MouseEnter:Connect(function() if screen == "list" then setFocus(i) end end)
+		plate.Activated:Connect(function() if screen == "list" then toggleRow(i) end end)
+		rows[i] = r
+	end
+	focusRow = math.clamp(focusRow, 1, math.max(1, #rows))
+	restyleRows()
+end
+
+-- нижняя панель: BACK, MULTIPLE SELECTION, FIND MATCH и плашка поиска
+local listBack = smallButton(listScreen, "‹  BACK", 64, 200)
+local multiBtn, multiLabel = smallButton(listScreen, "MULTIPLE SELECTION", 280, 340)
+multiLabel.Position = UDim2.fromOffset(60, 0)
+multiLabel.Size = UDim2.new(1, -60, 1, 0)
+local multiBox = Instance.new("Frame")
+multiBox.BackgroundTransparency = 1
+multiBox.AnchorPoint = Vector2.new(0, 0.5)
+multiBox.Position = UDim2.new(0, 20, 0.5, 0)
+multiBox.Size = UDim2.fromOffset(24, 24)
+multiBox.Parent = multiBtn
+stroke(multiBox, 0.1, 2)
+local multiFill = Instance.new("Frame")
+multiFill.BorderSizePixel = 0
+multiFill.BackgroundColor3 = C.accent
+multiFill.AnchorPoint = Vector2.new(0.5, 0.5)
+multiFill.Position = UDim2.fromScale(0.5, 0.5)
+multiFill.Size = UDim2.fromOffset(14, 14)
+multiFill.Visible = false
+multiFill.Parent = multiBox
+
+local findBtn = Instance.new("TextButton")
+findBtn.Text = ""
+findBtn.AutoButtonColor = false
+findBtn.BorderSizePixel = 0
+findBtn.BackgroundColor3 = C.white
+findBtn.AnchorPoint = Vector2.new(1, 1)
+findBtn.Position = UDim2.new(1, -64, 1, -50)
+findBtn.Size = UDim2.fromOffset(340, 64)
+findBtn.Parent = listScreen
+addScale(findBtn)
+gradient(findBtn, ColorSequence.new(C.play1, C.play2), 0)
+local findStroke = stroke(findBtn, 0.6, 2)
+local findLabel = label(findBtn, "FIND MATCH", F_HEAVY, 32, C.white)
+findLabel.Size = UDim2.fromScale(1, 1)
+findLabel.TextXAlignment = Enum.TextXAlignment.Center
+findBtn.MouseEnter:Connect(function() tween(findStroke, 0.12, { Transparency = 0 }) end)
+findBtn.MouseLeave:Connect(function() tween(findStroke, 0.12, { Transparency = 0.6 }) end)
+
+local banner = Instance.new("Frame")
+banner.BorderSizePixel = 0
+banner.BackgroundColor3 = C.navy
+banner.BackgroundTransparency = 0.15
+banner.AnchorPoint = Vector2.new(1, 1)
+banner.Position = UDim2.new(1, -64, 1, -128)
+banner.Size = UDim2.fromOffset(340, 70)
+banner.Visible = false
+banner.Parent = listScreen
+addScale(banner)
+stroke(banner, 0.5, 1.5)
+local bannerTitle = label(banner, "", F_HEAVY, 24, C.white)
+bannerTitle.Position = UDim2.fromOffset(18, 6)
+bannerTitle.Size = UDim2.new(1, -36, 0, 32)
+local bannerSub = label(banner, "", F_BOLD, 14, GREY)
+bannerSub.Position = UDim2.fromOffset(18, 40)
+bannerSub.Size = UDim2.new(1, -36, 0, 20)
+bannerSub.TextTruncate = Enum.TextTruncate.AtEnd
+
+local searching = false
+local function stopSearch()
+	searching = false
+	banner.Visible = false
+	findLabel.Text = "FIND MATCH"
+end
+local function startSearch()
+	local names = {}
+	for i, pl in ipairs(PLAYLISTS[currentTab]) do
+		if chosen[currentTab][i] then table.insert(names, pl.name) end
+	end
+	if #names == 0 then
+		bannerTitle.Text = "SELECT A PLAYLIST"
+		bannerSub.Text = ""
+		banner.Visible = true
+		task.delay(1.5, function() if not searching then banner.Visible = false end end)
+		return
+	end
+	searching = true
+	local started = os.clock()
+	bannerSub.Text = currentTab .. ": " .. table.concat(names, ", ")
+	banner.Visible = true
+	findLabel.Text = "CANCEL"
+	print("[Menu] FIND MATCH > " .. bannerSub.Text)
+	task.spawn(function()
+		while searching and gui.Parent do
+			local sec = math.floor(os.clock() - started)
+			bannerTitle.Text = string.format("SEARCHING  %d:%02d", sec // 60, sec % 60)
+			task.wait(0.25)
+		end
+	end)
+end
+findBtn.Activated:Connect(function()
+	if screen ~= "list" then return end
+	if searching then stopSearch() else startSearch() end
 end)
-back.MouseLeave:Connect(function()
-	tween(back, 0.12, { BackgroundColor3 = C.btnBg, BackgroundTransparency = 0.3 })
-	tween(backLabel, 0.12, { TextColor3 = C.white })
-	tween(backStroke, 0.12, { Transparency = 0.8 })
-end)
+
+local function toggleMulti()
+	multi = not multi
+	multiFill.Visible = multi
+	if not multi then
+		-- остаётся один выбранный плейлист
+		local set, keep = chosen[currentTab], nil
+		for i in pairs(set) do if not keep or i < keep then keep = i end end
+		table.clear(set)
+		set[keep or focusRow] = true
+	end
+	restyleRows()
+end
+multiBtn.Activated:Connect(function() if screen == "list" then toggleMulti() end end)
+
+local function setTab(name)
+	if not PLAYLISTS[name] then return end
+	currentTab = name
+	focusRow = 1
+	if not multi and next(chosen[name]) == nil then chosen[name][1] = true end
+	for _, t in ipairs(tabs) do
+		local on = t.name == name
+		tween(t.label, 0.14, { TextColor3 = on and C.white or Color3.fromRGB(120, 140, 175) })
+		tween(t.line, 0.14, { BackgroundTransparency = on and 0 or 1 })
+		tween(t.btn, 0.14, { BackgroundTransparency = on and 0.88 or 1 })
+	end
+	tabInfo.Text = TAB_INFO[name] or ""
+	stopSearch()
+	buildRows()
+end
+local function shiftTab(d)
+	local idx = table.find(TAB_ORDER, currentTab) or 1
+	setTab(TAB_ORDER[math.clamp(idx + d, 1, #TAB_ORDER)])
+end
+for _, t in ipairs(tabs) do
+	t.btn.Activated:Connect(function() if screen == "list" then setTab(t.name) end end)
+end
 
 ------------------------------------------------------------------
 -- ПЕРЕХОДЫ
 ------------------------------------------------------------------
 function openPlay()
-	if inPlay then return end
+	if screen ~= "main" then return end
+	screen = "play"
 	inPlay = true
 	showMainButtons(false)
 	tween(menuBlur, 0.3, { Size = 10 })
@@ -1041,7 +1483,8 @@ function openPlay()
 end
 
 local function closePlay()
-	if not inPlay then return end
+	if screen ~= "play" then return end
+	screen = "main"
 	inPlay = false
 	tween(menuBlur, 0.3, { Size = 0 })
 	tween(playScreen, 0.2, { GroupTransparency = 1 }).Completed:Connect(function()
@@ -1050,6 +1493,31 @@ local function closePlay()
 	showMainButtons(true)
 end
 back.Activated:Connect(closePlay)
+
+function openList(tab)
+	if screen ~= "play" then return end
+	screen = "list"
+	tween(playScreen, 0.2, { GroupTransparency = 1 }).Completed:Connect(function()
+		if screen == "list" then playScreen.Visible = false end
+	end)
+	tween(menuBlur, 0.3, { Size = 4 })
+	listScreen.Visible = true
+	tween(listScreen, 0.25, { GroupTransparency = 0 })
+	setTab(tab)
+end
+
+local function closeList()
+	if screen ~= "list" then return end
+	screen = "play"
+	stopSearch()
+	tween(menuBlur, 0.3, { Size = 10 })
+	tween(listScreen, 0.2, { GroupTransparency = 1 }).Completed:Connect(function()
+		if screen ~= "list" then listScreen.Visible = false end
+	end)
+	playScreen.Visible = true
+	tween(playScreen, 0.25, { GroupTransparency = 0 })
+end
+listBack.Activated:Connect(closeList)
 
 -- клавиатура / геймпад
 local function isKey(k, ...)
@@ -1063,7 +1531,25 @@ table.insert(conns, UIS.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed and not (input.KeyCode == Enum.KeyCode.ButtonA and GuiService.SelectedObject == nil) then return end
 	local k = input.KeyCode
 	local confirm = isKey(k, K.Return, K.KeypadEnter, K.ButtonA)
-	if inPlay then
+	if screen == "list" then
+		if isKey(k, K.Up, K.W, K.DPadUp) then
+			setFocus(math.max(1, focusRow - 1))
+		elseif isKey(k, K.Down, K.S, K.DPadDown) then
+			setFocus(math.min(#rows, focusRow + 1))
+		elseif isKey(k, K.Q, K.ButtonL1) then
+			shiftTab(-1)
+		elseif isKey(k, K.E, K.ButtonR1) then
+			shiftTab(1)
+		elseif confirm then
+			toggleRow(focusRow)
+		elseif isKey(k, K.F, K.ButtonY) then
+			if searching then stopSearch() else startSearch() end
+		elseif isKey(k, K.M, K.ButtonX) then
+			toggleMulti()
+		elseif isKey(k, K.Backspace, K.ButtonB) then
+			closeList()
+		end
+	elseif screen == "play" then
 		if isKey(k, K.Left, K.A, K.DPadLeft) then
 			selectCard(math.max(1, cardSel - 1))
 		elseif isKey(k, K.Right, K.D, K.DPadRight) then
