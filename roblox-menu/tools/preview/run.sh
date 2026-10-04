@@ -8,6 +8,7 @@
 #                         PREVIEW_NODE_MODULES  node_modules with playwright-core, three, @fontsource/montserrat
 #                         CHROMIUM              chromium binary (default /opt/pw-browsers/chromium)
 #                         PREVIEW_MODELS        folder with the .glb models (default: <script dir>/models)
+#                         PREVIEW_SCENARIOS     optional .luau file returning extra scenarios (see driver.luau)
 # They can also be put into tools/preview/.env (git-ignored).
 set -euo pipefail
 
@@ -32,6 +33,11 @@ MODELS="${PREVIEW_MODELS:-$(dirname "$SCRIPT")/models}"
 export PREVIEW_NODE_MODULES="${PREVIEW_NODE_MODULES:-}"
 export CHROMIUM="${CHROMIUM:-/opt/pw-browsers/chromium}"
 VIEW_W="${PREVIEW_WIDTH:-1920}"; VIEW_H="${PREVIEW_HEIGHT:-1080}"
+EXTRA="${PREVIEW_SCENARIOS:-}"
+if [ -n "$EXTRA" ]; then
+  [ -f "$EXTRA" ] || { echo "PREVIEW_SCENARIOS: no such file: $EXTRA" >&2; exit 1; }
+  EXTRA="$(cd "$(dirname "$EXTRA")" && pwd)/$(basename "$EXTRA")"
+fi
 
 # 1. sizes/names of the meshes inside every .glb (stand-ins for ReplicatedStorage.MenuAssets)
 node "$HERE/render.mjs" manifest "$MODELS" > "$WORK/assets.luau"
@@ -45,6 +51,7 @@ build() { # $1 mode, $2 scenario, $3 file
       "$1" "$2" "$(basename "$SCRIPT")" "$VIEW_W" "$VIEW_H"
     printf '__PREVIEW.source = [%s[\n' "$level"; cat "$SCRIPT"; printf '\n]%s]\n' "$level"
     printf '__PREVIEW.assets = '; cat "$WORK/assets.luau"
+    if [ -n "$EXTRA" ]; then printf '__PREVIEW.extraScenarios = (function()\n'; cat "$EXTRA"; printf '\nend)()\n'; fi
     printf 'do\n'; cat "$HERE/mock.luau"; printf '\nend\n'
     cat "$HERE/driver.luau"
   } > "$3"
@@ -72,7 +79,7 @@ for sc in "${SCENARIOS[@]}"; do
   if [ ! -s "$WORK/$sc.json" ]; then echo "   (no scene dump produced)" >&2; status=1; continue; fi
   node -e '
     const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-    for (const e of d.errors) console.log("   SCRIPT ERROR: " + e.message + "\n" + e.traceback.split("\n").map(l => "      " + l).join("\n"));
+    for (const e of d.errors) console.log("   SCRIPT ERROR" + (e.count > 1 ? ` (x${e.count}, first at t=${e.time.toFixed(2)}s)` : "") + ": " + e.message + "\n" + e.traceback.split("\n").map(l => "      " + l).join("\n"));
     for (const w of d.warnings) console.log("   mock: " + w);
     for (const u of d.unsupported) console.log("   not drawn: " + u);
     if (d.mainThread === "suspended") console.log("   note: the main script thread is still waiting (yielded) at the end");

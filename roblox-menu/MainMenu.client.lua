@@ -327,8 +327,9 @@ local function buildStadium(withShell)
 		part(Vector3.new(FW + 60, 1, FL + 60), at(0, -0.5, 0), Color3.fromRGB(58, 102, 36), Enum.Material.Grass)
 	end
 	-- подсветка половин (синяя / оранжевая)
-	part(Vector3.new(FW, 0.02, HL), at(0, 0.09, -HL / 2), C.orange, Enum.Material.Neon, 0.96)
-	part(Vector3.new(FW, 0.02, HL), at(0, 0.09, HL / 2), C.blue, Enum.Material.Neon, 0.96)
+	-- лёгкий оттенок половин (без свечения, иначе трава кажется жёлтой и бирюзовой)
+	part(Vector3.new(FW, 0.02, HL), at(0, 0.09, -HL / 2), C.orange, Enum.Material.SmoothPlastic, 0.94)
+	part(Vector3.new(FW, 0.02, HL), at(0, 0.09, HL / 2), C.blue, Enum.Material.SmoothPlastic, 0.94)
 
 	-- разметка
 	local function line(sx, sz, x, z)
@@ -1928,7 +1929,7 @@ local function buildSettingsAndFreeplay()
 	fpHelp.BorderSizePixel = 0
 	fpHelp.AnchorPoint = Vector2.new(0, 1)
 	fpHelp.Position = UDim2.new(0, 32, 1, -32)
-	fpHelp.Size = UDim2.fromOffset(760, 70)
+	fpHelp.Size = UDim2.fromOffset(980, 70)
 	fpHelp.Parent = fpHud
 	addScale(fpHelp)
 	local fpHelpKb = label(fpHelp, "", F_BOLD, 17, C.white)
@@ -2163,7 +2164,20 @@ local function buildSettingsAndFreeplay()
 		local fwd = carForward(fp.heading)
 		local want = fp.pos + fwd * v * dt
 		local got, hit = clampToField(want, math.max(fp.halfW, fp.halfL), false)
-		if hit then v = (got - fp.pos):Dot(fwd) / dt * 0.9 end -- у стены машина скользит вдоль неё
+		if hit then
+		-- у стены машина скользит вдоль неё и плавно разворачивается по стене
+		local slide = got - fp.pos
+		local along = slide.Magnitude / dt -- скорость вдоль стены
+		if along > 1 then
+			v = math.sign(v) * along * 0.97
+			local dir = slide.Unit * math.sign(v)
+			local target = math.atan2(-dir.X, -dir.Z)
+			local turn = (target - fp.heading + math.pi) % (2 * math.pi) - math.pi
+			fp.heading += turn * math.min(1, 6 * dt)
+		else
+			v = 0 -- уткнулись в стену прямо
+		end
+	end
 		fp.pos, fp.speed = got, v
 		placeCar()
 
@@ -2176,7 +2190,7 @@ local function buildSettingsAndFreeplay()
 				fp.ballPos, fp.ballVel = Vector3.new(0, R, 0), Vector3.zero
 			end
 		else
-			local bv = fp.ballVel * math.exp(-0.45 * dt)
+			local bv = fp.ballVel * math.exp(-0.25 * dt)
 			local bp = fp.ballPos + bv * dt
 			local cp, bhit = clampToField(bp, R, true)
 			if bhit then

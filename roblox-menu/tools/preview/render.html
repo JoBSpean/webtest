@@ -970,7 +970,7 @@ if (D.cursor) {
 if (D.errors.length) {
   const e = document.createElement('div');
   e.id = 'err';
-  e.textContent = 'Script error(s) in the preview run:\n' + D.errors.map(x => x.message).join('\n');
+  e.textContent = 'Script error(s) in the preview run:\n' + D.errors.map(x => x.message + (x.count > 1 ? `  (x${x.count})` : '')).join('\n');
   document.getElementById('stage').appendChild(e);
 }
 for (const u of D.unsupported) note(u);

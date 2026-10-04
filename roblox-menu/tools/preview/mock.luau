@@ -736,11 +736,19 @@ DT.CatalogSearchParams = { new = function() return {} end }
 local now = 0
 local queue = {}
 local qseq = 0
+local errorByMessage = {}
 local function recordError(err, co)
-	local tb = co and debug.traceback(co) or ""
 	local msg = tostring(err)
-	table.insert(M.errors, { message = msg, traceback = tb, time = now })
-	print("[preview][error] " .. msg)
+	local seen = errorByMessage[msg]
+	if seen then -- the same error every frame (RenderStepped) is recorded once, with a count
+		seen.count += 1
+		return
+	end
+	local tb = co and debug.traceback(co) or ""
+	local e = { message = msg, traceback = tb, time = now, count = 1 }
+	errorByMessage[msg] = e
+	table.insert(M.errors, e)
+	print(string.format("[preview][error] t=%.2f %s", now, msg))
 end
 M.recordError = recordError
 local function resume(co, ...)
@@ -1298,11 +1306,12 @@ local function modelPivot(m)
 		return cfmul(partCF(pp), rawget2(pp, "PivotOffset"))
 	end
 	if st.worldPivot then return st.worldPivot end
+	-- like Roblox: until WorldPivot is set (PivotTo, WorldPivot =, MoveTo...), a new Model's pivot is
+	-- the centre of the bounding box of its parts at that moment (it follows parts added/moved later)
 	local parts = basePartsOf(m)
 	if #parts == 0 then return cfT(0, 0, 0) end
 	local c = aabbOfParts(parts, cfT(0, 0, 0))
-	st.worldPivot = cfT(c[1], c[2], c[3])
-	return st.worldPivot
+	return cfT(c[1], c[2], c[3])
 end
 
 local function moveModel(m, delta)
@@ -1475,27 +1484,47 @@ function MM.GetExtentsSize(self)
 	return s
 end
 function MM.GetScale(self) return S[self].scale or 1 end
+-- ScaleTo: every part's size and its position relative to the model pivot are multiplied by
+-- new/old scale; the pivot itself stays put. Also scaled: PivotOffset, Attachment / joint C0 C1
+-- offsets, SpecialMesh Scale/Offset, Light ranges, pivots and scale factors of nested Models.
+local function scaledCF(cf, f)
+	return CF(cf[1] * f, cf[2] * f, cf[3] * f, cf[4], cf[5], cf[6], cf[7], cf[8], cf[9], cf[10], cf[11], cf[12])
+end
 function MM.ScaleTo(self, s)
-	if type(s) ~= "number" or s <= 0 then error("ScaleTo: scale must be a positive number", 2) end
+	if type(s) ~= "number" or s ~= s or s <= 0 then error("ScaleTo: scale must be a positive number", 2) end
 	local st = S[self]
 	local f = s / (st.scale or 1)
+	if f == 1 then return end
 	local pivot = modelPivot(self)
 	local inv = cfinv(pivot)
-	for _, p in ipairs(basePartsOf(self)) do
-		local rel = cfmul(inv, partCF(p))
-		rel[1], rel[2], rel[3] = rel[1] * f, rel[2] * f, rel[3] * f
-		setPartCF(p, cfmul(pivot, rel))
-		local sz = rawget2(p, "Size")
-		setRaw(p, "Size", V3(sz.X * f, sz.Y * f, sz.Z * f))
-	end
+	-- nested models: remember their pivots before the parts move (unset ones follow their parts anyway)
 	eachDescendant(self, function(d)
-		if isA(d, "Light") then setRaw(d, "Range", rawget2(d, "Range") * f) end
-		if isA(d, "Attachment") then local cf = rawget2(d, "CFrame") setRaw(d, "CFrame", CF(cf[1] * f, cf[2] * f, cf[3] * f, cf[4], cf[5], cf[6], cf[7], cf[8], cf[9], cf[10], cf[11], cf[12])) end
 		local ds = S[d]
 		if ds.worldPivot then
 			local rel = cfmul(inv, ds.worldPivot)
-			rel[1], rel[2], rel[3] = rel[1] * f, rel[2] * f, rel[3] * f
-			ds.worldPivot = cfmul(pivot, rel)
+			ds.worldPivot = cfmul(pivot, scaledCF(rel, f))
+		end
+		if isA(d, "Model") then ds.scale = (ds.scale or 1) * f end
+	end)
+	for _, p in ipairs(basePartsOf(self)) do
+		local rel = cfmul(inv, partCF(p))
+		setPartCF(p, cfmul(pivot, scaledCF(rel, f)))
+		local sz = rawget2(p, "Size")
+		setRaw(p, "Size", V3(sz.X * f, sz.Y * f, sz.Z * f))
+		local po = rawget2(p, "PivotOffset")
+		if po[1] ~= 0 or po[2] ~= 0 or po[3] ~= 0 then setRaw(p, "PivotOffset", scaledCF(po, f)) end
+	end
+	eachDescendant(self, function(d)
+		if isA(d, "Light") then setRaw(d, "Range", math.min(rawget2(d, "Range") * f, 60)) end
+		if isA(d, "Attachment") then setRaw(d, "CFrame", scaledCF(rawget2(d, "CFrame"), f)) end
+		if isA(d, "SpecialMesh") then
+			local sc, off = rawget2(d, "Scale"), rawget2(d, "Offset")
+			setRaw(d, "Scale", V3(sc.X * f, sc.Y * f, sc.Z * f))
+			setRaw(d, "Offset", V3(off.X * f, off.Y * f, off.Z * f))
+		end
+		if S[d].cls.all.C0 ~= nil then
+			setRaw(d, "C0", scaledCF(rawget2(d, "C0"), f))
+			setRaw(d, "C1", scaledCF(rawget2(d, "C1"), f))
 		end
 	end)
 	st.scale = s
@@ -2515,7 +2544,6 @@ function M.advance(dt)
 	end
 	runQueue(target)
 end
-M.frames = function() return frameNo end
 
 ------------------------------------------------------------------
 -- INPUT HELPERS (used by the driver)
@@ -2566,10 +2594,14 @@ function M.buttonOf(g)
 end
 local hovered = {}
 local function inputObject(kind, keyCode, pos)
-	return { KeyCode = keyCode or Enum.KeyCode.Unknown, UserInputType = kind, UserInputState = Enum.UserInputState.Begin,
-		Position = V3(pos and pos.X or M.mouse.X, pos and pos.Y or M.mouse.Y, 0), Delta = V3(0, 0, 0),
-		IsModifierKeyDown = function() return false end }
+	return newInputObject(kind, keyCode, V3(pos and pos.X or M.mouse.X, pos and pos.Y or M.mouse.Y, 0))
 end
+local function setLastInput(kind)
+	if INPUT.lastType == kind then return end
+	INPUT.lastType = kind
+	fireIf(game:GetService("UserInputService"), "LastInputTypeChanged", kind)
+end
+M.setLastInput = setLastInput
 function M.hover(targets)
 	local set = {}
 	for _, t in ipairs(targets) do set[t] = true end
@@ -2593,6 +2625,7 @@ function M.click(g)
 	local targets = { btn }
 	if g ~= btn then table.insert(targets, g) end
 	M.hover(targets)
+	setLastInput(Enum.UserInputType.MouseButton1)
 	local io = inputObject(Enum.UserInputType.MouseButton1)
 	fireIf(btn, "InputBegan", io)
 	fireIf(btn, "MouseButton1Down", M.mouse.X, M.mouse.Y)
@@ -2605,23 +2638,156 @@ function M.click(g)
 	end
 	return btn
 end
-function M.key(name, processed)
-	local kc = Enum.KeyCode[name]
-	local uis = game:GetService("UserInputService")
-	local io = inputObject(Enum.UserInputType.Keyboard, kc)
-	if name:match("^Button") or name:match("^DPad") or name:match("^Thumbstick") then io.UserInputType = Enum.UserInputType.Gamepad1 end
-	fireIf(uis, "InputBegan", io, processed == true)
+-- keyboard keys and gamepad buttons ---------------------------------------
+-- ContextActionService actions bound to this KeyCode or UserInputType
+local function casDispatch(io, state)
 	for actionName, a in pairs(casActions) do
 		for _, k in ipairs(a.keys) do
-			if k == kc or k == io.UserInputType then task.spawn(a.fn, actionName, Enum.UserInputState.Begin, io) end
+			if k == io.KeyCode or k == io.UserInputType then task.spawn(a.fn, actionName, state, io) break end
 		end
 	end
-	io.UserInputState = Enum.UserInputState.End
-	fireIf(uis, "InputEnded", io, processed == true)
-	for actionName, a in pairs(casActions) do
-		for _, k in ipairs(a.keys) do
-			if k == kc or k == io.UserInputType then task.spawn(a.fn, actionName, Enum.UserInputState.End, io) end
+end
+local function uisFire(ev, io, processed)
+	fireIf(game:GetService("UserInputService"), ev, io, processed == true)
+	casDispatch(io, io.UserInputState)
+end
+-- KeyCode name as given by a scenario ("w" -> "W")
+local function keyName(name)
+	name = tostring(name)
+	if #name == 1 then name = name:upper() end
+	return name
+end
+M.keyName = keyName
+
+local PAD_AXES = { LX = 0, LY = 0, RX = 0, RY = 0, LT = 0, RT = 0 }
+local function padIOPosition(pad, n)
+	local a = pad.axes
+	if n == "Thumbstick1" then return V3(a.LX, a.LY, 0) end
+	if n == "Thumbstick2" then return V3(a.RX, a.RY, 0) end
+	if n == "ButtonR2" then return V3(0, 0, math.max(a.RT, pad.buttons.ButtonR2 and 1 or 0)) end
+	if n == "ButtonL2" then return V3(0, 0, math.max(a.LT, pad.buttons.ButtonL2 and 1 or 0)) end
+	return V3(0, 0, pad.buttons[n] and 1 or 0)
+end
+-- plug in Gamepad1 (stays connected for the rest of the run)
+function M.connectPad()
+	if INPUT.pad then return INPUT.pad end
+	local pad = { axes = table.clone(PAD_AXES), buttons = {}, io = {} }
+	for _, n in ipairs(GAMEPAD_KEYS) do
+		local io = newInputObject(Enum.UserInputType.Gamepad1, Enum.KeyCode[n], V3(0, 0, 0))
+		io.UserInputState = Enum.UserInputState.End
+		pad.io[n] = io
+	end
+	INPUT.pad = pad
+	fireIf(game:GetService("UserInputService"), "GamepadConnected", Enum.UserInputType.Gamepad1)
+	return pad
+end
+-- refresh the live InputObjects; fire InputChanged for moved sticks/triggers and
+-- InputBegan/InputEnded for buttons (and triggers crossing 0.5) that changed
+local function padUpdate(pad, wasDown)
+	for _, n in ipairs(GAMEPAD_KEYS) do
+		local io = pad.io[n]
+		local pos = padIOPosition(pad, n)
+		local old = io.Position
+		local moved = pos.X ~= old.X or pos.Y ~= old.Y or pos.Z ~= old.Z
+		io.Delta = V3(pos.X - old.X, pos.Y - old.Y, pos.Z - old.Z)
+		io.Position = pos
+		local down = padButtonDown(n)
+		if n == "Thumbstick1" or n == "Thumbstick2" then
+			if moved then
+				io.UserInputState = Enum.UserInputState.Change
+				uisFire("InputChanged", io)
+			end
+		else
+			if moved and (n == "ButtonR2" or n == "ButtonL2") then
+				io.UserInputState = Enum.UserInputState.Change
+				uisFire("InputChanged", io)
+			end
+			if down and not wasDown[n] then
+				io.UserInputState = Enum.UserInputState.Begin
+				uisFire("InputBegan", io)
+			elseif wasDown[n] and not down then
+				io.UserInputState = Enum.UserInputState.End
+				uisFire("InputEnded", io)
+			end
 		end
+	end
+end
+local function padSnapshot()
+	local d = {}
+	for _, n in ipairs(GAMEPAD_KEYS) do d[n] = padButtonDown(n) end
+	return d
+end
+-- set Gamepad1 to `v` = { LX=, LY=, RX=, RY=, LT=, RT=, buttons = { "ButtonA", ... } }; axes left out
+-- become 0, buttons left out are released. M.setPad(nil) releases everything (pad stays connected).
+function M.setPad(v)
+	local pad = M.connectPad()
+	setLastInput(Enum.UserInputType.Gamepad1)
+	v = v or {}
+	local wasDown = padSnapshot()
+	for k in pairs(PAD_AXES) do
+		local x = tonumber(v[k]) or 0
+		pad.axes[k] = (k == "LT" or k == "RT") and math.clamp(x, 0, 1) or math.clamp(x, -1, 1)
+	end
+	for k in pairs(v) do
+		if PAD_AXES[k] == nil and k ~= "buttons" then note("pad: unknown field '" .. tostring(k) .. "' (use LX LY RX RY LT RT buttons)") end
+	end
+	local want = {}
+	for _, b in ipairs(v.buttons or {}) do
+		b = keyName(b)
+		if not IS_GAMEPAD_KEY[b] or b:match("^Thumbstick") then note("pad: '" .. b .. "' is not a gamepad button")
+		else want[b] = true end
+	end
+	pad.buttons = want
+	padUpdate(pad, wasDown)
+end
+-- press / release one key: keyboard KeyCode name ("W", "LeftShift", "Space", "Up") or gamepad button ("ButtonA", "DPadUp")
+function M.inputDown(name, processed)
+	name = keyName(name)
+	if IS_GAMEPAD_KEY[name] then
+		local pad = M.connectPad()
+		setLastInput(Enum.UserInputType.Gamepad1)
+		local wasDown = padSnapshot()
+		pad.buttons[name] = true
+		padUpdate(pad, wasDown)
+		return
+	end
+	if INPUT.keys[name] then return end
+	setLastInput(Enum.UserInputType.Keyboard)
+	local io = newInputObject(Enum.UserInputType.Keyboard, Enum.KeyCode[name])
+	INPUT.keys[name] = io
+	table.insert(INPUT.keyOrder, name)
+	uisFire("InputBegan", io, processed)
+end
+function M.inputUp(name, processed)
+	name = keyName(name)
+	if IS_GAMEPAD_KEY[name] then
+		local pad = INPUT.pad
+		if not (pad and pad.buttons[name]) then return end
+		local wasDown = padSnapshot()
+		pad.buttons[name] = nil
+		padUpdate(pad, wasDown)
+		return
+	end
+	local io = INPUT.keys[name]
+	if not io then return end
+	INPUT.keys[name] = nil
+	local i = table.find(INPUT.keyOrder, name)
+	if i then table.remove(INPUT.keyOrder, i) end
+	io.UserInputState = Enum.UserInputState.End
+	uisFire("InputEnded", io, processed)
+end
+-- tap: InputBegan + InputEnded at the same instant (no frame in between)
+function M.key(name, processed)
+	M.inputDown(name, processed)
+	M.inputUp(name, processed)
+end
+-- release everything that is held (keys, buttons, sticks, triggers)
+function M.releaseAll()
+	for i = #INPUT.keyOrder, 1, -1 do M.inputUp(INPUT.keyOrder[i]) end
+	if INPUT.pad then
+		local any = next(INPUT.pad.buttons) ~= nil
+		for _, x in pairs(INPUT.pad.axes) do if x ~= 0 then any = true end end
+		if any then M.setPad(nil) end
 	end
 end
 
