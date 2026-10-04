@@ -50,7 +50,7 @@ async function processFile(job) {
       const u = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], w = [C[0] - A[0], C[1] - A[1], C[2] - A[2]];
       const g = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
       report.totalTris++;
-      if (!N) continue;
+      if (!N || job.alignWinding === false) continue;
       N.getElement(i0, n0); N.getElement(i1, n1); N.getElement(i2, n2);
       const nn = [n0[0] + n1[0] + n2[0], n0[1] + n1[1] + n2[1], n0[2] + n1[2] + n2[2]];
       if (g[0] * nn[0] + g[1] * nn[1] + g[2] * nn[2] < 0) {
@@ -115,8 +115,18 @@ async function processFile(job) {
       if (isGas) color = [1, 0.55, 0.1];            // выхлоп буста — оранжевый
       else if (isRear) color = [1, 0.12, 0.12];     // задние фонари — красные
       glowName.set(m, 'Glow_' + hex(color));
+      const c255 = color.map(x => Math.round(clamp01(x) * 255));
+      m.setBaseColorTexture(doc.createTexture(m.getName() + '_glow').setMimeType('image/png')
+        .setImage(await sharp({ create: { width: 8, height: 8, channels: 3, background: { r: c255[0], g: c255[1], b: c255[2] } } }).png().toBuffer()));
       report.glow.push(`${m.getName()} -> Glow_${hex(color)}`);
     }
+  }
+
+  // текстуры цвета без альфа-канала, чтобы Roblox точно не счёл их прозрачными
+  for (const m of root.listMaterials()) {
+    const t = m.getBaseColorTexture(); if (!t || t.getMimeType() !== 'image/png') continue;
+    const meta = await sharp(Buffer.from(t.getImage())).metadata();
+    if (meta.hasAlpha) t.setImage(await sharp(Buffer.from(t.getImage())).removeAlpha().png().toBuffer());
   }
 
   // имена деталей: по материалу (импорт Roblox называет MeshPart'ы по узлам)
@@ -136,9 +146,9 @@ async function processFile(job) {
 }
 function acc3neg(v) { v[0] = -v[0]; v[1] = -v[1]; v[2] = -v[2]; }
 
-// пути: out/*.glb — модели после первого шага (запекание трансформаций в three.js, см. CREDITS.md)
+// пути: out/*.glb — модели после первого шага (запекание трансформаций в three.js, см. models/CREDITS.md)
 const jobs = [
-  { in: 'out/RL_Fennec.glb',  out: 'fixed/Car.glb',         rotate180: true },
+  { in: 'out/RL_Fennec.glb',  out: 'fixed/Car.glb',         rotate180: true, alignWinding: false }, // уже собран правильно
   { in: 'out/RL_Dominus.glb', out: 'fixed/Car_Dominus.glb', rotate180: true, doubleSided: 9000 },
   { in: 'out/RL_Ball.glb',    out: 'fixed/Ball.glb',        invertNormals: true },
 ];
