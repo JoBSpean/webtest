@@ -1,4 +1,12 @@
---[[
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" version="4">
+<Item class="Workspace" referent="RBX0"><Properties><string name="Name">Workspace</string></Properties>
+<Item class="SpawnLocation" referent="RBX4"><Properties><string name="Name">SpawnLocation</string><bool name="Anchored">true</bool>
+<CoordinateFrame name="CFrame"><X>0</X><Y>0</Y><Z>0</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame>
+<Vector3 name="size"><X>12</X><Y>1</Y><Z>12</Z></Vector3></Properties></Item></Item>
+<Item class="StarterPlayer" referent="RBX1"><Properties><string name="Name">StarterPlayer</string></Properties>
+<Item class="StarterPlayerScripts" referent="RBX2"><Properties><string name="Name">StarterPlayerScripts</string></Properties>
+<Item class="LocalScript" referent="RBX3"><Properties><string name="Name">MainMenu</string>
+<ProtectedString name="Source"><![CDATA[--[[
 	Главное меню в стиле Rocket League (визуальная копия).
 	LocalScript -> StarterPlayer > StarterPlayerScripts
 ]]
@@ -319,3 +327,5 @@ _G.CloseMainMenu = function()
 	camera.CameraType = Enum.CameraType.Custom
 	pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, true) end)
 end
+]]></ProtectedString></Properties></Item>
+</Item></Item></roblox>
