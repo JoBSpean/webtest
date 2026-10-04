@@ -198,6 +198,16 @@ local function fitModel(src, targetSize, horizontalOnly)
 			d:Destroy()
 		elseif d:IsA("BasePart") then
 			d.Anchored, d.CanCollide, d.CanTouch, d.CanQuery = true, false, false, false
+			-- детали с именем Glow_RRGGBB (фары, огни, выхлоп) светятся неоном этого цвета
+			local hex = d.Name:match("^Glow_(%x%x%x%x%x%x)")
+			if hex then
+				for _, c in ipairs(d:GetChildren()) do
+					if c:IsA("SurfaceAppearance") then c:Destroy() end
+				end
+				if d:IsA("MeshPart") then pcall(function() d.TextureID = "" end) end
+				d.Material = Enum.Material.Neon
+				d.Color = Color3.fromHex(hex)
+			end
 		end
 	end
 	local _, size = m:GetBoundingBox()
