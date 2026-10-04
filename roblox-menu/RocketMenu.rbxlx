@@ -34,10 +34,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 if not game:IsLoaded() then game.Loaded:Wait() end
 
--- СВОИ МОДЕЛИ: положите в ReplicatedStorage > MenuAssets модели, имя которых начинается с:
---   Car   - машинка (подгоняется под длину 8.4 стада), например Car или Car_Dominus
---   Ball  - мяч (подгоняется под диаметр 9)
---   Arena - купол арены: стены, пандусы, ворота (подгоняется под длину 203.75; атрибут Length меняет её)
+-- СВОИ МОДЕЛИ: положите в ReplicatedStorage > MenuAssets модели:
+--   Ball...  - мяч (имя начинается с Ball, подгоняется под диаметр 9)
+--   Arena... - купол арены: стены, пандусы, ворота (подгоняется под длину 203.75; атрибут Length меняет её)
+--   любая другая модель - машинка (подгоняется под длину 8.4 стада). Машин может быть
+--   несколько: первой показывается та, чьё имя начинается с Car, кнопка GARAGE листает остальные.
 -- Готовые модели лежат в папке models/ рядом со скриптом (Car.glb, Ball.glb, Arena.glb).
 -- Если модель стоит боком, добавьте ей атрибут Yaw (число, градусы поворота).
 local ASSETS = ReplicatedStorage:FindFirstChild("MenuAssets")
@@ -244,8 +245,8 @@ local function buildStadium(withShell)
 		part(Vector3.new(FW + 60, 1, FL + 60), at(0, -0.5, 0), Color3.fromRGB(58, 102, 36), Enum.Material.Grass)
 	end
 	-- подсветка половин (синяя / оранжевая)
-	part(Vector3.new(FW, 0.02, HL), at(0, 0.09, -HL / 2), C.orange, Enum.Material.Neon, 0.9)
-	part(Vector3.new(FW, 0.02, HL), at(0, 0.09, HL / 2), C.blue, Enum.Material.Neon, 0.9)
+	part(Vector3.new(FW, 0.02, HL), at(0, 0.09, -HL / 2), C.orange, Enum.Material.Neon, 0.96)
+	part(Vector3.new(FW, 0.02, HL), at(0, 0.09, HL / 2), C.blue, Enum.Material.Neon, 0.96)
 
 	-- разметка
 	local function line(sx, sz, x, z)
@@ -556,7 +557,24 @@ local function setCar(model)
 	car.Name = "ShowcaseCar"
 end
 _G.SetMenuCar = setCar
-setCar(asset("Car"))
+
+-- машины = все модели в MenuAssets, кроме мяча и арены
+local carList = {}
+if ASSETS then
+	for _, child in ipairs(ASSETS:GetChildren()) do
+		local n = child.Name
+		if (child:IsA("Model") or child:IsA("BasePart")) and n:sub(1, 4) ~= "Ball" and n:sub(1, 5) ~= "Arena" then
+			table.insert(carList, child)
+		end
+	end
+	table.sort(carList, function(a, b)
+		local ac, bc = a.Name:sub(1, 3) == "Car", b.Name:sub(1, 3) == "Car"
+		if ac ~= bc then return ac end
+		return a.Name < b.Name
+	end)
+end
+local carIndex = 1
+setCar(carList[1])
 
 -- свет на машинку (ключевой спереди-слева + синий контровой сзади)
 do
@@ -794,6 +812,11 @@ local function activateMain(i)
 	selectMain(i)
 	if MENU[i].play then
 		openPlay()
+	elseif MENU[i].name == "GARAGE" and #carList > 1 then
+		-- GARAGE листает машины из MenuAssets
+		carIndex = carIndex % #carList + 1
+		setCar(carList[carIndex])
+		print("[Menu] GARAGE: " .. carList[carIndex].Name)
 	else
 		print("[Menu] " .. MENU[i].name)
 	end
