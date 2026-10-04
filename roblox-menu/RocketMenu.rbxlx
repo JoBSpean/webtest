@@ -52,6 +52,8 @@ local StarterGui   = game:GetService("StarterGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
+local savedMouseLock = player.DevEnableMouseLock
+pcall(function() player.DevEnableMouseLock = false end) -- shift-lock забирает Shift и подменяет курсор
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 -- СВОИ МОДЕЛИ: положите в ReplicatedStorage > MenuAssets модели:
@@ -638,8 +640,14 @@ local function buildTestCar()
 	shadow.CastShadow = false
 end
 
+local driving = false -- идёт Free Play: машиной, мячом и камерой управляет езда
+local carModel        -- последняя модель, переданная в setCar (nil = тестовая машинка)
+
 -- Поставить машинку в меню (модель игрока). Без аргумента - тестовая.
+-- Во время Free Play машина заменится после выхода в меню.
 local function setCar(model)
+	carModel = model
+	if driving then return end
 	if car then car:Destroy() end
 	if model then
 		car = fitModel(model, 8.4, true)
@@ -693,7 +701,6 @@ local savedFov = workspace.CurrentCamera.FieldOfView
 local CAM_POS  = ORIGIN + Vector3.new(-3, 4.2, 58)
 local CAM_LOOK = ORIGIN + Vector3.new(-6.5, 3.6, 40)
 local t0 = os.clock()
-local driving = false -- идёт Free Play: камерой и мячом управляет езда
 table.insert(conns, RunService.RenderStepped:Connect(function()
 	local cam = workspace.CurrentCamera
 	if cam.CameraType ~= Enum.CameraType.Scriptable then cam.CameraType = Enum.CameraType.Scriptable end
@@ -1628,6 +1635,7 @@ local function buildSettingsAndFreeplay()
 		[Enum.KeyCode.Backspace] = true, [Enum.KeyCode.Escape] = true, [Enum.KeyCode.P] = true, [Enum.KeyCode.R] = true,
 		[Enum.KeyCode.ButtonB] = true, [Enum.KeyCode.DPadUp] = true, [Enum.KeyCode.ButtonStart] = true,
 		[Enum.KeyCode.ButtonSelect] = true, [Enum.KeyCode.Thumbstick1] = true, [Enum.KeyCode.Thumbstick2] = true,
+		[Enum.KeyCode.DPadLeft] = true, [Enum.KeyCode.DPadRight] = true, -- крестовина влево/вправо всегда руль
 	}
 
 	local settingsScreen = Instance.new("CanvasGroup")
@@ -1975,6 +1983,23 @@ local function buildSettingsAndFreeplay()
 	fpGoal.Visible = false
 	addScale(fpGoal)
 
+	local fpPauseBtn = Instance.new("TextButton")
+	fpPauseBtn.Name = "PauseButton"
+	fpPauseBtn.Text = ""
+	fpPauseBtn.AutoButtonColor = false
+	fpPauseBtn.BackgroundColor3 = C.navy
+	fpPauseBtn.BackgroundTransparency = 0.35
+	fpPauseBtn.BorderSizePixel = 0
+	fpPauseBtn.AnchorPoint = Vector2.new(1, 0)
+	fpPauseBtn.Position = UDim2.new(1, -24, 0, 24)
+	fpPauseBtn.Size = UDim2.fromOffset(140, 44)
+	fpPauseBtn.Parent = fpHud
+	addScale(fpPauseBtn)
+	stroke(fpPauseBtn, 0.6, 1.5)
+	local fpPauseLbl = label(fpPauseBtn, "PAUSE", F_HEAVY, 22, C.white)
+	fpPauseLbl.Size = UDim2.fromScale(1, 1)
+	fpPauseLbl.TextXAlignment = Enum.TextXAlignment.Center
+
 	-- пауза
 	local pauseMenu = Instance.new("Frame")
 	pauseMenu.BackgroundColor3 = C.navy
@@ -2086,7 +2111,7 @@ local function buildSettingsAndFreeplay()
 	local function teardownDrive()
 		ball:ScaleTo(fp.ballScale)
 		ball:PivotTo(ballBase)
-		setCar(carList[carIndex]) -- машина меню заново, в прежнем размере и месте
+		setCar(carModel) -- машина меню заново, в прежнем размере и месте (та же модель, что была)
 	end
 
 	local function helpText()
@@ -2099,6 +2124,18 @@ local function buildSettingsAndFreeplay()
 
 	-- ввод: клавиатура + геймпад; газ -1..1 (минус = назад), руль -1..1 (плюс = вправо)
 	local GP = Enum.UserInputType.Gamepad1
+	do
+		local ok, pads = pcall(function() return UIS:GetConnectedGamepads() end)
+		if ok and #pads > 0 then
+			table.sort(pads, function(a, b) return a.Value < b.Value end)
+			GP = pads[1]
+		end
+	end
+	local function trackPad(input)
+		if string.sub(input.UserInputType.Name, 1, 7) == "Gamepad" then GP = input.UserInputType end
+	end
+	table.insert(conns, UIS.InputBegan:Connect(trackPad))
+	table.insert(conns, UIS.InputChanged:Connect(trackPad))
 	local function padValue(state, code)
 		if typeof(code) ~= "EnumItem" then return 0 end
 		if code == Enum.KeyCode.ButtonR2 or code == Enum.KeyCode.ButtonL2 then
@@ -2133,22 +2170,25 @@ local function buildSettingsAndFreeplay()
 
 	-- границы поля: стены с пандусами и срезанные углы (как у арены Rocket League)
 	local WALL_PAD = 6
-	local function clampToField(p, radius, allowGoal)
-		local hit = false
-		local lx = HW - WALL_PAD - radius
-		local lz = HL - WALL_PAD - radius
-		if allowGoal and math.abs(p.X) < GOAL_W / 2 - radius then lz = HL + GOAL_D - radius end
+	-- prev = где объект был кадр назад: если он уже в воротах, стенками служат штанги и сетка.
+	-- Возвращает новую точку, было ли касание и вектор поправки (смотрит наружу, в стену).
+	local function clampToField(p, radius, prev)
 		local x, z = p.X, p.Z
-		if math.abs(x) > lx then x = math.sign(x) * lx; hit = true end
-		if math.abs(z) > lz then z = math.sign(z) * lz; hit = true end
-		local corner = 0.875 * (HW + HL) - WALL_PAD * 1.4 - radius * 1.4
-		if math.abs(x) + math.abs(z) > corner and math.abs(z) <= HL then
+		local mouth = GOAL_W / 2 - radius
+		local fieldZ = HL - WALL_PAD - radius
+		local inGoal = prev ~= nil and math.abs(prev.Z) > fieldZ and math.abs(prev.X) <= mouth + 1e-3
+		local lx = inGoal and mouth or (HW - WALL_PAD - radius)
+		local lz = (inGoal or math.abs(x) < mouth) and (HL + GOAL_D - radius) or fieldZ
+		if math.abs(x) > lx then x = math.sign(x) * lx end
+		if math.abs(z) > lz then z = math.sign(z) * lz end
+		local corner = 0.875 * (HW + HL) - (WALL_PAD + radius) * 1.4
+		if not inGoal and math.abs(x) + math.abs(z) > corner then
 			local over = (math.abs(x) + math.abs(z) - corner) / 2
 			x -= math.sign(x) * over
 			z -= math.sign(z) * over
-			hit = true
 		end
-		return Vector3.new(x, p.Y, z), hit
+		local corr = Vector3.new(p.X - x, 0, p.Z - z)
+		return Vector3.new(x, p.Y, z), corr.Magnitude > 1e-4, corr
 	end
 
 	local function scoreGoal(side)
@@ -2174,22 +2214,24 @@ local function buildSettingsAndFreeplay()
 		-- руль: радиус поворота зависит от скорости, на месте машина не крутится
 		fp.heading -= steer * v * turnCurvature(math.abs(v)) * dt
 		local fwd = carForward(fp.heading)
+		local carR = math.max(fp.halfW, fp.halfL)
 		local want = fp.pos + fwd * v * dt
-		local got, hit = clampToField(want, math.max(fp.halfW, fp.halfL), false)
+		local got, hit = clampToField(want, carR, fp.pos)
 		if hit then
-		-- у стены машина скользит вдоль неё и плавно разворачивается по стене
-		local slide = got - fp.pos
-		local along = slide.Magnitude / dt -- скорость вдоль стены
-		if along > 1 then
-			v = math.sign(v) * along * 0.97
-			local dir = slide.Unit * math.sign(v)
-			local target = math.atan2(-dir.X, -dir.Z)
-			local turn = (target - fp.heading + math.pi) % (2 * math.pi) - math.pi
-			fp.heading += turn * math.min(1, 6 * dt)
-		else
-			v = 0 -- уткнулись в стену прямо
+			-- у стены машина скользит вдоль неё и плавно разворачивается по стене
+			local slide = got - fp.pos
+			local along = slide.Magnitude / dt -- скорость вдоль стены
+			if along > 1 then
+				v = math.sign(v) * along * math.exp(-1.5 * dt)
+				local dir = slide.Unit * math.sign(v)
+				local target = math.atan2(-dir.X, -dir.Z)
+				local turn = (target - fp.heading + math.pi) % (2 * math.pi) - math.pi
+				fp.heading += math.abs(turn) < 0.01 and turn or turn * math.min(1, 6 * dt)
+			else
+				v = 0 -- уткнулись в стену прямо
+			end
+			fwd = carForward(fp.heading)
 		end
-	end
 		fp.pos, fp.speed = got, v
 		placeCar()
 
@@ -2203,26 +2245,49 @@ local function buildSettingsAndFreeplay()
 			end
 		else
 			local bv = fp.ballVel * math.exp(-0.25 * dt)
-			local bp = fp.ballPos + bv * dt
-			local cp, bhit = clampToField(bp, R, true)
+			local prevBall = fp.ballPos
+			local bp, bhit, bcorr = clampToField(fp.ballPos + bv * dt, R, prevBall)
 			if bhit then
-				if cp.X ~= bp.X then bv = Vector3.new(-bv.X * 0.6, 0, bv.Z) end
-				if cp.Z ~= bp.Z then bv = Vector3.new(bv.X, 0, -bv.Z * 0.6) end
+				-- отскок от стены, штанги или среза угла: отражаем скорость по нормали стены
+				local n = bcorr.Unit
+				local vn = bv:Dot(n)
+				if vn > 0 then bv -= n * vn * 1.6 end
 			end
-			bp = cp
 			-- удар машиной: ближайшая точка корпуса к центру мяча
 			local right = carRight(fp.heading)
-			local d = Vector3.new(bp.X - fp.pos.X, 0, bp.Z - fp.pos.Z)
-			local lx = math.clamp(d:Dot(right), -fp.halfW, fp.halfW)
-			local lz = math.clamp(d:Dot(fwd), -fp.halfL, fp.halfL)
-			local diff = d - (right * lx + fwd * lz)
-			local dist = diff.Magnitude
+			local function carContact(point)
+				local d = Vector3.new(point.X - fp.pos.X, 0, point.Z - fp.pos.Z)
+				local ux, uz = d:Dot(right), d:Dot(fwd)
+				local lx = math.clamp(ux, -fp.halfW, fp.halfW)
+				local lz = math.clamp(uz, -fp.halfL, fp.halfL)
+				local diff = d - (right * lx + fwd * lz)
+				local dist = diff.Magnitude
+				if dist > 1e-3 then return diff / dist, right * lx + fwd * lz, dist end
+				-- центр мяча внутри машины: выталкиваем через ближайшую грань
+				if fp.halfW - math.abs(ux) < fp.halfL - math.abs(uz) then
+					local sx = ux >= 0 and 1 or -1
+					return right * sx, right * (sx * fp.halfW) + fwd * lz, 0
+				end
+				local sz = uz >= 0 and 1 or -1
+				return fwd * sz, right * lx + fwd * (sz * fp.halfL), 0
+			end
+			local n, contact, dist = carContact(bp)
 			if dist < R then
-				local n = dist > 1e-3 and diff / dist or fwd
-				bp = Vector3.new(fp.pos.X, R, fp.pos.Z) + right * lx + fwd * lz + n * R
+				bp = Vector3.new(fp.pos.X, R, fp.pos.Z) + contact + n * R
 				local rel = bv - fwd * fp.speed
 				local vn = rel:Dot(n)
 				if vn < 0 then bv -= n * vn * 1.6 end
+				-- мяч прижат к стене: он остаётся у стены, а машина отъезжает назад
+				local pinned
+				bp, pinned = clampToField(bp, R, prevBall)
+				if pinned then
+					local n2, _, dist2 = carContact(bp)
+					if dist2 < R then
+						fp.pos -= n2 * (R - dist2)
+						fp.speed = 0
+						placeCar()
+					end
+				end
 			end
 			fp.ballPos, fp.ballVel = Vector3.new(bp.X, R, bp.Z), bv
 			if math.abs(bp.Z) > HL + R then scoreGoal(math.sign(bp.Z)) end
@@ -2254,13 +2319,25 @@ local function buildSettingsAndFreeplay()
 	table.insert(conns, RunService.RenderStepped:Connect(function(dt)
 		if not driving then return end
 		dt = math.min(dt, 1 / 20)
-		if not fp.paused then stepDrive(dt) end
+		if not fp.paused and not GuiService.MenuIsOpen then stepDrive(dt) end
 		updateDriveCamera(dt)
 	end))
+
+	local function setCharControls(on)
+		pcall(function()
+			local ps = player:FindFirstChild("PlayerScripts")
+			local pm = ps and ps:FindFirstChild("PlayerModule")
+			if not pm then return end
+			local controls = require(pm):GetControls()
+			if on then controls:Enable() else controls:Disable() end
+		end)
+	end
+	extra.setCharControls = setCharControls
 
 	local function setPaused(on)
 		fp.paused = on
 		pauseMenu.Visible = on
+		fpPauseBtn.Visible = not on
 		pauseSel = 1
 		stylePause()
 		UIS.MouseIconEnabled = on
@@ -2282,6 +2359,7 @@ local function buildSettingsAndFreeplay()
 			end
 			menuBlur.Size = 0
 			dof.Enabled = false
+			setCharControls(false)
 			setupDrive()
 			helpText()
 			driving = true
@@ -2303,6 +2381,7 @@ local function buildSettingsAndFreeplay()
 			UIS.MouseIconEnabled = true
 			fpHud.Visible = false
 			teardownDrive()
+			setCharControls(true)
 			for ch, vis in pairs(fp.hidden) do ch.Visible = vis end
 			playScreen.Visible = false
 			playScreen.GroupTransparency = 1
@@ -2328,6 +2407,13 @@ local function buildSettingsAndFreeplay()
 	for i, it in ipairs(pauseItems) do
 		it.btn.Activated:Connect(function() if screen == "freeplay" and fp.paused then activatePause(i) end end)
 	end
+	table.insert(conns, GuiService.MenuOpened:Connect(function()
+		if screen == "freeplay" and driving and not fp.paused then setPaused(true) end
+	end))
+	-- кнопка паузы на экране (для телефона и мыши)
+	fpPauseBtn.Activated:Connect(function()
+		if screen == "freeplay" and driving and not fp.paused then setPaused(true) end
+	end)
 
 	-- клавиши экрана настроек (вызывается из общего обработчика ниже)
 	function extra.settingsKey(input, k, confirm)
@@ -2399,7 +2485,9 @@ local K = Enum.KeyCode
 table.insert(conns, UIS.InputBegan:Connect(function(input, gameProcessed)
 	-- ButtonA забирает привязка прыжка, но персонажа в меню нет, так что пропускаем её,
 	-- если только геймпад не выделил кнопку сам (тогда она нажмётся через Activated)
-	if gameProcessed and not (input.KeyCode == Enum.KeyCode.ButtonA and GuiService.SelectedObject == nil) then return end
+	if GuiService.MenuIsOpen then return end
+	if gameProcessed and not (input.KeyCode == Enum.KeyCode.ButtonA and GuiService.SelectedObject == nil
+		and GuiService.SelectedCoreObject == nil) then return end
 	local k = input.KeyCode
 	local confirm = isKey(k, K.Return, K.KeypadEnter, K.ButtonA)
 	if screen == "leaving" then return end
@@ -2468,8 +2556,10 @@ _G.CloseMainMenu = function()
 	for _, e in ipairs(effects) do e:Destroy() end
 	for prop, v in pairs(savedLighting) do Lighting[prop] = v end
 	for _, child in ipairs(stashed) do child.Parent = Lighting end
+	if driving and extra.setCharControls then extra.setCharControls(true) end
 	driving = false
 	UIS.MouseIconEnabled = true
+	pcall(function() player.DevEnableMouseLock = savedMouseLock end)
 	workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
 	workspace.CurrentCamera.FieldOfView = savedFov
 	pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, true) end)
