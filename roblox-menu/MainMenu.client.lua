@@ -1,321 +1,924 @@
 --[[
-	Главное меню в стиле Rocket League (визуальная копия).
+	ГЛАВНОЕ МЕНЮ В СТИЛЕ НОВОГО ROCKET LEAGUE
 	LocalScript -> StarterPlayer > StarterPlayerScripts
+
+	- Фон: ночной стадион (поле, разметка, бусты, ворота, стеклянные стены,
+	  трибуны с болельщиками, табло, прожекторы), задний план размыт как в игре.
+	- По центру тестовая машинка (потом сюда ставится машина игрока).
+	- Слева меню: большая кнопка PLAY и GARAGE, ITEM SHOP, ROCKET PASS, CAREER, EXTRAS, SETTINGS.
+	- PLAY открывает экран режимов: CASUAL, COMPETITIVE, TOURNAMENTS, PRIVATE MATCH, OFFLINE.
+	- Управление: мышь, стрелки/WASD, Enter, Backspace (назад), геймпад.
+	- Закрыть меню из другого скрипта: _G.CloseMainMenu()
 ]]
-local Players       = game:GetService("Players")
-local TweenService  = game:GetService("TweenService")
-local RunService    = game:GetService("RunService")
-local Lighting      = game:GetService("Lighting")
-local UIS           = game:GetService("UserInputService")
-local StarterGui    = game:GetService("StarterGui")
+
+local Players      = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService   = game:GetService("RunService")
+local Lighting     = game:GetService("Lighting")
+local UIS          = game:GetService("UserInputService")
+local StarterGui   = game:GetService("StarterGui")
 
 local player = Players.LocalPlayer
-local camera = workspace.CurrentCamera
 pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false) end)
 
-----------------------------------------------------------------
--- ДАННЫЕ МЕНЮ
-----------------------------------------------------------------
+------------------------------------------------------------------
+-- НАСТРОЙКИ
+------------------------------------------------------------------
 local MENU = {
-	{ name = "SHOWROOM",    desc = "View and rotate your car." },
-	{ name = "PLAY ONLINE", desc = "Play public or private matches online.",
-		sub = { "FIND MATCH", "CREATE PRIVATE MATCH", "JOIN PRIVATE MATCH" } },
-	{ name = "EXHIBITION",  desc = "Play an offline match against bots." },
-	{ name = "SEASON",      desc = "Play a full season against bots." },
-	{ name = "GARAGE",      desc = "Customize your car.", alert = true },
-	{ name = "TRAINING",    desc = "Practice your skills." },
-	{ name = "EXTRAS",      desc = "Replays, stats and more." },
-	{ name = "OPTIONS",     desc = "Change game settings." },
+	{ name = "PLAY", play = true },
+	{ name = "GARAGE", badge = true },
+	{ name = "ITEM SHOP" },
+	{ name = "ROCKET PASS" },
+	{ name = "CAREER" },
+	{ name = "EXTRAS" },
+	{ name = "SETTINGS" },
+}
+
+local MODES = {
+	{ name = "CASUAL",        desc = "Unranked matches",    big = "3V3",  c1 = Color3.fromRGB(20, 140, 255),  c2 = Color3.fromRGB(5, 40, 130) },
+	{ name = "COMPETITIVE",   desc = "Ranked playlists",    big = "RANK", c1 = Color3.fromRGB(150, 80, 255),  c2 = Color3.fromRGB(40, 12, 110) },
+	{ name = "TOURNAMENTS",   desc = "Compete for rewards", big = "CUP",  c1 = Color3.fromRGB(255, 150, 30),  c2 = Color3.fromRGB(140, 45, 0), tag = "NEXT 18:00" },
+	{ name = "PRIVATE MATCH", desc = "Play with friends",   big = "VS",   c1 = Color3.fromRGB(0, 200, 175),   c2 = Color3.fromRGB(0, 70, 80) },
+	{ name = "OFFLINE",       desc = "Play against bots",   big = "BOT",  c1 = Color3.fromRGB(120, 130, 150), c2 = Color3.fromRGB(30, 35, 48) },
 }
 
 local C = {
-	btn      = Color3.fromRGB(20, 23, 27),
-	sel1     = Color3.fromRGB(175, 225, 250),
-	sel2     = Color3.fromRGB(240, 250, 255),
-	glow     = Color3.fromRGB(80, 190, 255),
-	text     = Color3.fromRGB(238, 238, 238),
-	textSel  = Color3.fromRGB(25, 120, 200),
-	sub      = Color3.fromRGB(165, 165, 165),
-	alert    = Color3.fromRGB(255, 150, 20),
+	white   = Color3.new(1, 1, 1),
+	btnBg   = Color3.fromRGB(8, 18, 38),
+	selBg   = Color3.fromRGB(245, 248, 255),
+	selText = Color3.fromRGB(10, 35, 85),
+	accent  = Color3.fromRGB(0, 140, 255),
+	play1   = Color3.fromRGB(0, 160, 255),
+	play2   = Color3.fromRGB(0, 70, 210),
+	badge   = Color3.fromRGB(255, 140, 20),
+	blue    = Color3.fromRGB(30, 120, 255),
+	orange  = Color3.fromRGB(255, 120, 20),
+	navy    = Color3.fromRGB(2, 8, 22),
 }
-local FONT = Enum.Font.Oswald
-local BTN_W, BTN_H, GAP, SKEW = 320, 36, 5, 14
-local SUB_W = 320
 
-----------------------------------------------------------------
--- 3D ФОН: стадион + тестовый объект
-----------------------------------------------------------------
-local ORIGIN = Vector3.new(0, 1000, 0)
-local scene = Instance.new("Folder"); scene.Name = "MenuScene"; scene.Parent = workspace
+local FAMILY  = "rbxasset://fonts/families/GothamSSm.json"
+local F_HEAVY = Font.new(FAMILY, Enum.FontWeight.Heavy, Enum.FontStyle.Italic)
+local F_BOLD  = Font.new(FAMILY, Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+local F_BODY  = Font.new(FAMILY, Enum.FontWeight.Medium, Enum.FontStyle.Normal)
 
-local function part(size, cf, color, mat, extra)
-	local p = Instance.new("Part")
-	p.Anchored, p.CanCollide, p.CastShadow = true, false, false
-	p.Size, p.CFrame, p.Color = size, cf, color
-	p.Material = mat or Enum.Material.SmoothPlastic
-	p.TopSurface, p.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
-	for k, v in pairs(extra or {}) do p[k] = v end
-	p.Parent = scene
+local conns = {}
+local function tween(obj, time, goals)
+	local t = TweenService:Create(obj, TweenInfo.new(time, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), goals)
+	t:Play()
+	return t
+end
+
+------------------------------------------------------------------
+-- ОСВЕЩЕНИЕ (старые настройки сохраняются и возвращаются при закрытии)
+------------------------------------------------------------------
+local savedLighting = {}
+for _, prop in ipairs({ "ClockTime", "Brightness", "Ambient", "OutdoorAmbient", "EnvironmentDiffuseScale",
+	"EnvironmentSpecularScale", "ExposureCompensation", "GlobalShadows" }) do
+	savedLighting[prop] = Lighting[prop]
+end
+local stashed = {}
+for _, child in ipairs(Lighting:GetChildren()) do
+	if child:IsA("Sky") or child:IsA("Atmosphere") or child:IsA("PostEffect") then
+		table.insert(stashed, child)
+		child.Parent = nil
+	end
+end
+
+Lighting.ClockTime = 21.5
+Lighting.Brightness = 1.2
+Lighting.Ambient = Color3.fromRGB(70, 76, 96)
+Lighting.OutdoorAmbient = Color3.fromRGB(95, 100, 125)
+Lighting.EnvironmentDiffuseScale = 1
+Lighting.EnvironmentSpecularScale = 1
+Lighting.ExposureCompensation = 0.2
+Lighting.GlobalShadows = true
+
+local effects = {}
+local function effect(class, props)
+	local e = Instance.new(class)
+	for k, v in pairs(props) do e[k] = v end
+	e.Parent = Lighting
+	table.insert(effects, e)
+	return e
+end
+effect("Sky", { StarCount = 1500, CelestialBodiesShown = false })
+effect("Atmosphere", { Density = 0.28, Offset = 0.1, Color = Color3.fromRGB(60, 78, 120), Decay = Color3.fromRGB(25, 30, 60), Glare = 0, Haze = 1.2 })
+effect("BloomEffect", { Intensity = 0.9, Size = 28, Threshold = 1.4 })
+effect("ColorCorrectionEffect", { Contrast = 0.12, Saturation = 0.12, Brightness = 0.02 })
+effect("DepthOfFieldEffect", { FarIntensity = 0.35, FocusDistance = 18.6, InFocusRadius = 9, NearIntensity = 0 })
+local menuBlur = effect("BlurEffect", { Size = 0 })
+
+------------------------------------------------------------------
+-- 3D СЦЕНА: СТАДИОН
+------------------------------------------------------------------
+local ORIGIN = Vector3.new(0, 1000, 0) -- сцена висит отдельно от карты игры
+local scene = Instance.new("Folder")
+scene.Name = "MainMenuScene"
+scene.Parent = workspace
+
+local function make(class, size, cf, color, material, transparency, parent)
+	local p = Instance.new(class)
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanTouch = false
+	p.CanQuery = false
+	p.CastShadow = false
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Size = size
+	p.CFrame = cf
+	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
+	p.Transparency = transparency or 0
+	p.Parent = parent or scene
 	return p
 end
-local function at(x, y, z) return CFrame.new(ORIGIN + Vector3.new(x, y, z)) end
-
--- поле
-part(Vector3.new(400, 1, 300), at(0, -0.5, 0), Color3.fromRGB(70, 120, 35), Enum.Material.Grass)
--- разметка (белая + голубая, как на скриншоте)
-for _, z in ipairs({ -40, -70 }) do
-	part(Vector3.new(400, 0.05, 1.2), at(0, 0.03, z), Color3.fromRGB(230, 240, 255), Enum.Material.Neon, { Transparency = 0.2 })
+local function part(size, cf, color, material, transparency, shape)
+	local p = make("Part", size, cf, color, material, transparency)
+	if shape then p.Shape = shape end
+	return p
 end
-part(Vector3.new(400, 0.05, 6), at(0, 0.03, -55), Color3.fromRGB(70, 150, 230), Enum.Material.Neon, { Transparency = 0.45 })
-part(Vector3.new(1.2, 0.05, 300), at(-60, 0.03, 0), Color3.fromRGB(230, 240, 255), Enum.Material.Neon, { Transparency = 0.3 })
--- стенка арены
-part(Vector3.new(400, 14, 2), at(0, 7, -110), Color3.fromRGB(150, 70, 30), Enum.Material.Glass, { Transparency = 0.3 })
-part(Vector3.new(400, 1, 2.2), at(0, 14, -110), Color3.fromRGB(255, 120, 40), Enum.Material.Neon)
--- рекламные щиты
-for x = -180, 180, 30 do
-	part(Vector3.new(24, 5, 0.5), at(x, 18, -111), Color3.fromRGB(60, 110, 200), Enum.Material.Neon, { Transparency = 0.25 })
+local function at(x, y, z, rx, ry, rz)
+	return CFrame.new(ORIGIN + Vector3.new(x, y, z))
+		* CFrame.Angles(math.rad(rx or 0), math.rad(ry or 0), math.rad(rz or 0))
 end
--- трибуны
-for i = 0, 6 do
-	part(Vector3.new(400, 5, 10), at(0, 22 + i * 5, -120 - i * 10), Color3.fromRGB(60 + i * 6, 35, 30), Enum.Material.Fabric)
+local function beam(a, b, thick, color, material)
+	local pa, pb = ORIGIN + a, ORIGIN + b
+	return part(Vector3.new(thick, thick, (pb - pa).Magnitude), CFrame.lookAt((pa + pb) / 2, pb), color, material)
 end
--- крыша/конструкция с оранжевыми фермами
-for x = -180, 180, 45 do
-	part(Vector3.new(2, 80, 2), at(x, 40, -190), Color3.fromRGB(220, 110, 40), Enum.Material.Metal)
-end
-part(Vector3.new(400, 3, 3), at(0, 75, -180), Color3.fromRGB(220, 110, 40), Enum.Material.Metal)
--- прожекторы
-for x = -150, 150, 60 do
-	local l = part(Vector3.new(10, 3, 1), at(x, 70, -175), Color3.fromRGB(255, 240, 210), Enum.Material.Neon)
-	local s = Instance.new("SpotLight"); s.Brightness = 3; s.Range = 60; s.Angle = 80; s.Face = Enum.NormalId.Front; s.Parent = l
+local function disc(x, z, d, y, color, material, transparency)
+	return part(Vector3.new(0.04, d, d), at(x, y, z, 0, 0, 90), color, material, transparency, Enum.PartType.Cylinder)
 end
 
--- тестовый объект вместо машинки (заменить на модель игрока)
-local car = Instance.new("Model"); car.Name = "ShowcaseCar"; car.Parent = scene
-local function carPart(size, off, color, mat)
-	local p = part(size, at(0, 0, 0) * off, color, mat); p.Parent = car; return p
-end
-local body = carPart(Vector3.new(4.4, 1.6, 8), CFrame.new(0, 1.6, 0), Color3.fromRGB(20, 110, 40), Enum.Material.Metal)
-carPart(Vector3.new(3.6, 1.2, 3.4), CFrame.new(0, 2.9, -0.3), Color3.fromRGB(25, 30, 30), Enum.Material.Glass)
-carPart(Vector3.new(4.5, 0.3, 8.1), CFrame.new(0, 2.3, 0), Color3.fromRGB(240, 190, 20), Enum.Material.Neon)
-carPart(Vector3.new(4.8, 0.25, 1.2), CFrame.new(0, 3.6, 3.6), Color3.fromRGB(240, 190, 20), Enum.Material.Metal)
-for _, w in ipairs({ { 2.4, 2.6 }, { -2.4, 2.6 }, { 2.4, -2.6 }, { -2.4, -2.6 } }) do
-	local wh = carPart(Vector3.new(1, 2, 2), CFrame.new(w[1], 1, w[2]), Color3.fromRGB(25, 25, 25), Enum.Material.Plastic)
-	wh.Shape = Enum.PartType.Cylinder
-end
-car.PrimaryPart = body
-local CAR_POS = ORIGIN + Vector3.new(0, 0, 0)
-local carOffsets = {}
-for _, p in ipairs(car:GetChildren()) do carOffsets[p] = CFrame.new(CAR_POS):ToObjectSpace(p.CFrame) end
+local FW, FL, WH = 140, 180, 34 -- ширина поля, длина, высота стен
+local HW, HL = FW / 2, FL / 2
+local GOAL_W, GOAL_H, GOAL_D = 36, 13, 12
+local GLASS = Color3.fromRGB(140, 170, 210)
+local RAMP  = Color3.fromRGB(26, 34, 48)
+local FRAME = Color3.fromRGB(45, 52, 66)
+local LINE  = Color3.fromRGB(235, 240, 255)
+local BOOST = Color3.fromRGB(255, 160, 40)
 
--- свет / пост-эффекты
-Lighting.ClockTime = 20
-Lighting.Brightness = 2
-Lighting.Ambient = Color3.fromRGB(120, 110, 100)
-Lighting.OutdoorAmbient = Color3.fromRGB(140, 120, 100)
-local fx = {}
-local function effect(cls, props)
-	local e = Instance.new(cls); for k, v in pairs(props) do e[k] = v end; e.Parent = Lighting; table.insert(fx, e); return e
+-- газон + полосы покоса + подсветка половин (синяя / оранжевая)
+part(Vector3.new(FW + 60, 1, FL + 60), at(0, -0.5, 0), Color3.fromRGB(58, 102, 36), Enum.Material.Grass)
+for z = -HL, HL - 10, 20 do
+	part(Vector3.new(FW, 0.02, 10), at(0, 0.015, z + 5), Color3.fromRGB(40, 78, 26), nil, 0.55)
 end
-effect("DepthOfFieldEffect", { FarIntensity = 0.9, FocusDistance = 16, InFocusRadius = 10, NearIntensity = 0 })
-effect("BloomEffect", { Intensity = 0.6, Size = 30, Threshold = 1.5 })
-effect("ColorCorrectionEffect", { Contrast = 0.12, Saturation = 0.15, TintColor = Color3.fromRGB(255, 245, 235) })
-effect("Atmosphere", { Density = 0.35, Haze = 2, Color = Color3.fromRGB(200, 140, 100), Decay = Color3.fromRGB(120, 80, 60) })
+part(Vector3.new(FW, 0.02, HL), at(0, 0.04, -HL / 2), C.orange, Enum.Material.Neon, 0.9)
+part(Vector3.new(FW, 0.02, HL), at(0, 0.04, HL / 2), C.blue, Enum.Material.Neon, 0.9)
 
-camera.CameraType = Enum.CameraType.Scriptable
-camera.FieldOfView = 45
-camera.CFrame = CFrame.lookAt(CAR_POS + Vector3.new(-6, 3.5, 17), CAR_POS + Vector3.new(-6.5, 1.8, 0))
+-- разметка
+local function line(sx, sz, x, z)
+	part(Vector3.new(sx, 0.03, sz), at(x, 0.07, z), LINE, Enum.Material.Neon, 0.25)
+end
+line(FW, 0.5, 0, 0)
+local R, SEG = 16, 48
+for i = 0, SEG - 1 do
+	local a = (i + 0.5) / SEG * math.pi * 2
+	part(Vector3.new(0.5, 0.03, 2 * math.pi * R / SEG + 0.1),
+		at(math.cos(a) * R, 0.07, math.sin(a) * R) * CFrame.Angles(0, -a, 0), LINE, Enum.Material.Neon, 0.25)
+end
+for _, s in ipairs({ -1, 1 }) do
+	line(52, 0.5, 0, s * (HL - 18))
+	line(0.5, 18, -26, s * (HL - 9))
+	line(0.5, 18, 26, s * (HL - 9))
+end
 
-local angle = math.rad(-35)
-local spin = RunService.RenderStepped:Connect(function(dt)
-	angle += dt * 0.25
-	local base = CFrame.new(CAR_POS) * CFrame.Angles(0, angle, 0)
-	for p, off in pairs(carOffsets) do p.CFrame = base * off end
+-- бусты
+for _, p in ipairs({ { 0, -64 }, { -28, -36 }, { 28, -36 }, { -28, 36 }, { 28, 36 }, { -50, 0 }, { 50, 0 },
+	{ 0, -22 }, { 0, 22 }, { -18, -70 }, { 18, -70 }, { -18, 70 }, { 18, 70 } }) do
+	disc(p[1], p[2], 4.2, 0.05, Color3.fromRGB(35, 35, 40))
+	disc(p[1], p[2], 2.8, 0.08, BOOST, Enum.Material.Neon, 0.1)
+end
+local orbs = {}
+for _, p in ipairs({ { -60, -78 }, { 60, -78 }, { -60, 78 }, { 60, 78 }, { -60, 0 }, { 60, 0 } }) do
+	disc(p[1], p[2], 6, 0.05, Color3.fromRGB(35, 35, 40))
+	disc(p[1], p[2], 4.5, 0.08, BOOST, Enum.Material.Neon, 0.3)
+	local orb = part(Vector3.new(2.6, 2.6, 2.6), at(p[1], 2.4, p[2]), BOOST, Enum.Material.Neon, 0, Enum.PartType.Ball)
+	local l = Instance.new("PointLight")
+	l.Color, l.Range, l.Brightness = BOOST, 10, 1.5
+	l.Parent = orb
+	table.insert(orbs, { part = orb, base = orb.CFrame, phase = #orbs })
+end
+
+-- боковые стены: стекло, закруглённый «пандус», неоновая окантовка
+for _, s in ipairs({ -1, 1 }) do
+	part(Vector3.new(0.6, WH, FL), at(s * (HW + 0.3), WH / 2, 0), GLASS, Enum.Material.Glass, 0.8)
+	part(Vector3.new(0.8, 8, FL), at(s * (HW - 2.83), 2.83, 0, 0, 0, -45 * s), RAMP)
+	for _, h in ipairs({ { HL / 2, C.blue }, { -HL / 2, C.orange } }) do
+		part(Vector3.new(0.5, 0.5, HL), at(s * HW, WH, h[1]), h[2], Enum.Material.Neon)
+		part(Vector3.new(0.4, 0.4, HL), at(s * HW, 5.8, h[1]), h[2], Enum.Material.Neon, 0.2)
+	end
+	for z = -HL, HL, 15 do
+		part(Vector3.new(0.5, WH, 0.5), at(s * (HW + 0.3), WH / 2, z), FRAME, Enum.Material.Metal)
+	end
+end
+
+-- торцевые стены + ворота
+local function endWall(s, team)
+	local z = s * (HL + 0.3)
+	local sideW = HW - GOAL_W / 2
+	for _, sx in ipairs({ -1, 1 }) do
+		local cx = sx * (GOAL_W / 2 + sideW / 2)
+		part(Vector3.new(sideW, WH, 0.6), at(cx, WH / 2, z), GLASS, Enum.Material.Glass, 0.8)
+		part(Vector3.new(sideW, 8, 0.8), at(cx, 2.83, s * (HL - 2.83), 45 * s, 0, 0), RAMP)
+	end
+	part(Vector3.new(GOAL_W, WH - GOAL_H, 0.6), at(0, GOAL_H + (WH - GOAL_H) / 2, z), GLASS, Enum.Material.Glass, 0.8)
+	part(Vector3.new(FW, 0.5, 0.5), at(0, WH, s * HL), team, Enum.Material.Neon)
+	-- рамка ворот
+	part(Vector3.new(1, GOAL_H, 1), at(-GOAL_W / 2 - 0.5, GOAL_H / 2, s * HL), team, Enum.Material.Neon)
+	part(Vector3.new(1, GOAL_H, 1), at(GOAL_W / 2 + 0.5, GOAL_H / 2, s * HL), team, Enum.Material.Neon)
+	part(Vector3.new(GOAL_W + 2, 1, 1), at(0, GOAL_H + 0.5, s * HL), team, Enum.Material.Neon)
+	-- сетка
+	local gz = s * (HL + GOAL_D / 2)
+	part(Vector3.new(GOAL_W, GOAL_H, 0.2), at(0, GOAL_H / 2, s * (HL + GOAL_D)), team, Enum.Material.ForceField, 0.1)
+	part(Vector3.new(0.2, GOAL_H, GOAL_D), at(-GOAL_W / 2, GOAL_H / 2, gz), team, Enum.Material.ForceField, 0.1)
+	part(Vector3.new(0.2, GOAL_H, GOAL_D), at(GOAL_W / 2, GOAL_H / 2, gz), team, Enum.Material.ForceField, 0.1)
+	part(Vector3.new(GOAL_W, 0.2, GOAL_D), at(0, GOAL_H, gz), team, Enum.Material.ForceField, 0.1)
+	part(Vector3.new(GOAL_W, 1, GOAL_D), at(0, -0.45, gz), Color3.fromRGB(30, 30, 36))
+	local glow = part(Vector3.new(1, 1, 1), at(0, GOAL_H / 2, gz), team, nil, 1)
+	local pl = Instance.new("PointLight")
+	pl.Color, pl.Range, pl.Brightness = team, 18, 2
+	pl.Parent = glow
+	line(GOAL_W, 0.5, 0, s * (HL - 0.3))
+end
+endWall(-1, C.orange)
+endWall(1, C.blue)
+for _, sx in ipairs({ -1, 1 }) do
+	for _, sz in ipairs({ -1, 1 }) do
+		part(Vector3.new(1.5, WH, 1.5), at(sx * HW, WH / 2, sz * HL), FRAME, Enum.Material.Metal)
+	end
+end
+
+-- трибуны с болельщиками
+local rng = Random.new(2024)
+local CROWD = {
+	Color3.fromRGB(40, 90, 200), Color3.fromRGB(230, 110, 30), Color3.fromRGB(220, 220, 225),
+	Color3.fromRGB(30, 30, 35), Color3.fromRGB(180, 40, 40), Color3.fromRGB(240, 200, 40),
+	Color3.fromRGB(60, 60, 70), Color3.fromRGB(90, 160, 230),
+}
+local STAND = Color3.fromRGB(30, 28, 36)
+local function fan(x, y, z)
+	if rng:NextNumber() < 0.12 then return end
+	part(Vector3.new(1.4, 2.1, 1.3), at(x + rng:NextNumber(-0.4, 0.4), y + 1.05 + rng:NextNumber(-0.15, 0.25), z),
+		CROWD[rng:NextInteger(1, #CROWD)])
+end
+
+local FS = HL + GOAL_D + 6 -- передний край дальней трибуны
+local farW = FW + 80
+part(Vector3.new(farW, 9, 55), at(0, 4.5, -(FS - 2.5 + 27.5)), STAND, Enum.Material.Concrete)
+for i = 0, 9 do
+	local y, z = 12 + i * 3.2, -FS - i * 5
+	part(Vector3.new(farW, 3.2, 5), at(0, y - 1.6, z), STAND, Enum.Material.Concrete)
+	for x = -farW / 2 + 2, farW / 2 - 2, 3.4 do fan(x, y, z) end
+end
+-- светодиодная лента перед трибуной
+local ribbon = {}
+for x = -farW / 2 + 7.5, farW / 2 - 7.5, 15 do
+	local seg = part(Vector3.new(14.6, 3, 0.4), at(x, 6.5, -(FS - 2.8)), (#ribbon % 2 == 0) and C.blue or C.orange, Enum.Material.Neon, 0.1)
+	table.insert(ribbon, seg)
+end
+
+for _, s in ipairs({ -1, 1 }) do
+	part(Vector3.new(34, 4.8, FL + 30), at(s * 90, 2.4, -15), STAND, Enum.Material.Concrete)
+	for i = 0, 7 do
+		local x, y = s * (76 + i * 5), 8 + i * 3.2
+		part(Vector3.new(5, 3.2, FL + 30), at(x, y - 1.6, -15), STAND, Enum.Material.Concrete)
+		for z = -118, 88, 4.5 do fan(x, y, z) end
+	end
+end
+
+-- оранжевые металлические фермы за трибуной
+local TRUSS = Color3.fromRGB(215, 105, 40)
+local tz = -(FS + 52)
+for x = -105, 105, 35 do
+	part(Vector3.new(2.2, 72, 2.2), at(x, 36, tz), TRUSS, Enum.Material.Metal)
+end
+part(Vector3.new(220, 2.5, 2.5), at(0, 70, tz), TRUSS, Enum.Material.Metal)
+part(Vector3.new(220, 2, 2), at(0, 52, tz), TRUSS, Enum.Material.Metal)
+for x = -105, 70, 35 do
+	beam(Vector3.new(x, 52, tz), Vector3.new(x + 35, 70, tz), 1.2, TRUSS, Enum.Material.Metal)
+end
+
+-- табло над воротами
+part(Vector3.new(41, 17, 1), at(0, 47, -(HL + 10.3)), Color3.fromRGB(40, 44, 55), Enum.Material.Metal)
+local board = part(Vector3.new(40, 16, 1.2), at(0, 47, -(HL + 10)), Color3.fromRGB(12, 12, 16), Enum.Material.Metal)
+for _, sx in ipairs({ -1, 1 }) do
+	part(Vector3.new(0.4, 20, 0.4), at(sx * 16, 65, -(HL + 10.3)), FRAME, Enum.Material.Metal)
+end
+do
+	local sg = Instance.new("SurfaceGui")
+	sg.Face = Enum.NormalId.Back
+	sg.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+	sg.CanvasSize = Vector2.new(800, 320)
+	sg.LightInfluence = 0
+	sg.Brightness = 1.6
+	sg.Parent = board
+	local function box(x, w, color, text)
+		local f = Instance.new("TextLabel")
+		f.BorderSizePixel = 0
+		f.BackgroundColor3 = color
+		f.BackgroundTransparency = color == Color3.new() and 1 or 0
+		f.Position = UDim2.fromScale(x, 0.18)
+		f.Size = UDim2.fromScale(w, 0.64)
+		f.FontFace = F_HEAVY
+		f.TextScaled = true
+		f.TextColor3 = C.white
+		f.Text = text
+		f.Parent = sg
+	end
+	box(0.05, 0.25, C.blue, "0")
+	box(0.33, 0.34, Color3.new(), "5:00")
+	box(0.70, 0.25, C.orange, "0")
+end
+
+-- мачты освещения
+for _, s in ipairs({ -1, 1 }) do
+	local bx, bz = s * 95, -175
+	part(Vector3.new(2.5, 62, 2.5), at(bx, 31, bz), Color3.fromRGB(60, 62, 70), Enum.Material.Metal)
+	local head = part(Vector3.new(20, 10, 1.5),
+		CFrame.lookAt(ORIGIN + Vector3.new(bx, 62, bz), ORIGIN + Vector3.new(0, 0, 20)),
+		Color3.fromRGB(30, 32, 38), Enum.Material.Metal)
+	for gx = -1, 1 do
+		for gy = -0.5, 0.5 do
+			part(Vector3.new(5.2, 3.6, 0.4), head.CFrame * CFrame.new(gx * 6, gy * 4.6, -0.9),
+				Color3.fromRGB(255, 250, 235), Enum.Material.Neon)
+		end
+	end
+end
+
+-- свет над полем
+for _, p in ipairs({ { -35, -60 }, { 35, -60 }, { -35, 0 }, { 35, 0 }, { -30, 45 }, { 30, 45 } }) do
+	local holder = part(Vector3.new(1, 1, 1), at(p[1], 44, p[2]), C.white, nil, 1)
+	local sl = Instance.new("SpotLight")
+	sl.Face, sl.Angle, sl.Range, sl.Brightness = Enum.NormalId.Bottom, 120, 60, 1.2
+	sl.Color = Color3.fromRGB(255, 244, 228)
+	sl.Parent = holder
+end
+
+-- мяч
+local ball = part(Vector3.new(9, 9, 9), at(10, 4.5, -10), Color3.fromRGB(205, 205, 212), nil, 0, Enum.PartType.Ball)
+ball.CastShadow = true
+ball.Reflectance = 0.05
+local ballBase = ball.CFrame
+
+------------------------------------------------------------------
+-- ТЕСТОВАЯ МАШИНКА (заменить на машину игрока)
+------------------------------------------------------------------
+local CAR_X, CAR_Z, CAR_YAW = 0, 40, 130
+local carBase = at(CAR_X, 0, CAR_Z, 0, CAR_YAW, 0)
+local car = Instance.new("Model")
+car.Name = "ShowcaseCar"
+car.Parent = scene
+
+local PAINT  = Color3.fromRGB(25, 95, 230)
+local DARK   = Color3.fromRGB(22, 24, 28)
+local WINDOW = Color3.fromRGB(15, 20, 30)
+local TRIM   = Color3.fromRGB(120, 210, 255)
+local function cp(class, size, x, y, z, color, material, rot)
+	local p = make(class, size, carBase * CFrame.new(x, y, z) * (rot or CFrame.identity), color, material, 0, car)
+	p.CastShadow = true
+	return p
+end
+local FLIP = CFrame.Angles(0, math.pi, 0)
+local AXLE_Z = CFrame.Angles(0, math.rad(90), 0)
+
+cp("Part", Vector3.new(4.6, 1.3, 8.4), 0, 1.55, 0, PAINT).Reflectance = 0.15
+cp("Part", Vector3.new(4.7, 0.5, 8.0), 0, 0.95, 0, DARK)
+cp("WedgePart", Vector3.new(4.4, 0.8, 2.8), 0, 2.6, -2.8, PAINT).Reflectance = 0.15
+cp("WedgePart", Vector3.new(3.9, 1.5, 1.4), 0, 2.95, -0.7, WINDOW, Enum.Material.Glass)
+cp("Part", Vector3.new(3.9, 1.5, 2.4), 0, 2.95, 1.2, WINDOW, Enum.Material.Glass)
+cp("Part", Vector3.new(3.7, 0.15, 2.2), 0, 3.75, 1.2, PAINT)
+cp("WedgePart", Vector3.new(3.9, 1.5, 1.4), 0, 2.95, 3.1, WINDOW, Enum.Material.Glass, FLIP)
+cp("Part", Vector3.new(5, 0.22, 1.1), 0, 4.3, 3.7, DARK)
+for _, sx in ipairs({ -1, 1 }) do
+	cp("Part", Vector3.new(0.25, 2.1, 0.3), sx * 1.6, 3.25, 3.7, DARK)
+	cp("Part", Vector3.new(0.08, 0.25, 7), sx * 2.33, 1.75, 0, TRIM, Enum.Material.Neon)
+	cp("Part", Vector3.new(0.9, 0.3, 0.12), sx * 1.5, 1.85, -4.22, C.white, Enum.Material.Neon)
+	cp("Part", Vector3.new(0.9, 0.25, 0.12), sx * 1.5, 1.85, 4.22, Color3.fromRGB(255, 40, 40), Enum.Material.Neon)
+	for _, wz in ipairs({ -2.75, 2.75 }) do
+		cp("Part", Vector3.new(1.3, 2.6, 2.6), sx * 2.45, 1.3, wz, Color3.fromRGB(20, 20, 22)).Shape = Enum.PartType.Cylinder
+		cp("Part", Vector3.new(1.36, 1.5, 1.5), sx * 2.45, 1.3, wz, Color3.fromRGB(190, 195, 205), Enum.Material.Metal).Shape = Enum.PartType.Cylinder
+		cp("Part", Vector3.new(1.4, 0.5, 0.5), sx * 2.45, 1.3, wz, TRIM, Enum.Material.Neon).Shape = Enum.PartType.Cylinder
+	end
+end
+cp("Part", Vector3.new(4.9, 0.3, 0.8), 0, 0.85, -4.3, DARK)
+cp("Part", Vector3.new(2.2, 0.5, 0.1), 0, 1.4, -4.22, DARK)
+cp("Part", Vector3.new(0.4, 0.7, 0.7), 0, 1.3, 4.3, DARK, nil, AXLE_Z).Shape = Enum.PartType.Cylinder
+cp("Part", Vector3.new(0.42, 0.4, 0.4), 0, 1.3, 4.3, TRIM, Enum.Material.Neon, AXLE_Z).Shape = Enum.PartType.Cylinder
+local shadow = make("Part", Vector3.new(5.6, 0.02, 9.6), carBase * CFrame.new(0, 0.09, 0), Color3.new(), nil, 0.45, car)
+shadow.CastShadow = false
+
+-- свет на машинку (ключевой спереди-слева + синий контровой сзади)
+do
+	local keyPos = ORIGIN + Vector3.new(-8, 12, 54)
+	local key = part(Vector3.new(1, 1, 1), CFrame.lookAt(keyPos, ORIGIN + Vector3.new(CAR_X, 1.5, CAR_Z)), C.white, nil, 1)
+	local sl = Instance.new("SpotLight")
+	sl.Face, sl.Angle, sl.Range, sl.Brightness, sl.Shadows = Enum.NormalId.Front, 70, 30, 3, true
+	sl.Parent = key
+	local rim = part(Vector3.new(1, 1, 1), at(6, 8, 30), C.white, nil, 1)
+	local pl = Instance.new("PointLight")
+	pl.Color, pl.Range, pl.Brightness = Color3.fromRGB(120, 170, 255), 16, 1
+	pl.Parent = rim
+end
+
+------------------------------------------------------------------
+-- КАМЕРА (лёгкое «дыхание», как в игре)
+------------------------------------------------------------------
+local CAM_POS  = ORIGIN + Vector3.new(-3, 4.2, 58)
+local CAM_LOOK = ORIGIN + Vector3.new(-6.5, 3.6, 40)
+local t0 = os.clock()
+table.insert(conns, RunService.RenderStepped:Connect(function()
+	local cam = workspace.CurrentCamera
+	if cam.CameraType ~= Enum.CameraType.Scriptable then cam.CameraType = Enum.CameraType.Scriptable end
+	cam.FieldOfView = 40
+	local t = os.clock() - t0
+	local sway = Vector3.new(math.sin(t * 0.25) * 0.6, math.sin(t * 0.4) * 0.15, math.cos(t * 0.2) * 0.3)
+	cam.CFrame = CFrame.lookAt(CAM_POS + sway, CAM_LOOK)
+	for _, o in ipairs(orbs) do
+		o.part.CFrame = o.base * CFrame.new(0, math.sin(t * 2 + o.phase) * 0.25, 0) * CFrame.Angles(0, t, 0)
+	end
+	ball.CFrame = ballBase * CFrame.Angles(0, t * 0.15, 0)
+end))
+
+-- лента на трибуне переливается синим/оранжевым
+task.spawn(function()
+	local flip = false
+	while scene.Parent do
+		flip = not flip
+		for i, seg in ipairs(ribbon) do
+			tween(seg, 1.2, { Color = ((i % 2 == 0) == flip) and C.blue or C.orange })
+		end
+		task.wait(3)
+	end
 end)
 
-----------------------------------------------------------------
+------------------------------------------------------------------
 -- GUI
-----------------------------------------------------------------
+------------------------------------------------------------------
 local gui = Instance.new("ScreenGui")
-gui.Name, gui.IgnoreGuiInset, gui.ResetOnSpawn = "MainMenu", true, false
+gui.Name = "RLMainMenu"
+gui.IgnoreGuiInset = true
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = player:WaitForChild("PlayerGui")
 
-local root = Instance.new("Frame")
-root.BackgroundTransparency = 1
-root.AnchorPoint = Vector2.new(0, 1)
-root.Position = UDim2.new(0.03, 0, 0.81, 0)
-root.Size = UDim2.fromOffset(BTN_W + SUB_W + 40, #MENU * (BTN_H + GAP))
-root.Parent = gui
-local scale = Instance.new("UIScale"); scale.Parent = root
-local function rescale() scale.Scale = math.clamp(camera.ViewportSize.Y / 1080, 0.55, 1.5) end
-rescale(); camera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
+local scales = {}
+local function addScale(obj)
+	local s = Instance.new("UIScale")
+	s.Parent = obj
+	table.insert(scales, s)
+end
+local function rescale()
+	local y = workspace.CurrentCamera.ViewportSize.Y
+	for _, s in ipairs(scales) do s.Scale = math.clamp(y / 1080, 0.5, 1.6) end
+end
 
--- Скошенная плашка: собирается из горизонтальных полос (правый край наискосок)
-local STRIP = 2
-local function slantPlate(parent, w, h, z)
-	local f = Instance.new("Frame")
-	f.BackgroundTransparency = 1; f.Size = UDim2.fromOffset(w, h); f.ZIndex = z or 1; f.Parent = parent
-	local strips = {}
-	for y = 0, h - 1, STRIP do
-		local s = Instance.new("Frame")
-		s.BorderSizePixel = 0
-		s.Position = UDim2.fromOffset(0, y)
-		s.Size = UDim2.fromOffset(w - math.floor(SKEW * (y / h)), STRIP)
-		s.ZIndex = f.ZIndex
-		s.Parent = f
-		table.insert(strips, s)
+local function label(parent, text, font, size, color)
+	local l = Instance.new("TextLabel")
+	l.BackgroundTransparency = 1
+	l.FontFace = font
+	l.TextSize = size
+	l.TextColor3 = color
+	l.Text = text
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.Parent = parent
+	return l
+end
+local function gradient(parent, seq, rotation, transparency)
+	local g = Instance.new("UIGradient")
+	if seq then g.Color = seq end
+	if transparency then g.Transparency = transparency end
+	g.Rotation = rotation or 0
+	g.Parent = parent
+	return g
+end
+local function stroke(parent, transparency, thickness)
+	local s = Instance.new("UIStroke")
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Color = C.white
+	s.Transparency = transparency
+	s.Thickness = thickness
+	s.Parent = parent
+	return s
+end
+
+-- затемнение слева и снизу
+do
+	local left = Instance.new("Frame")
+	left.BorderSizePixel = 0
+	left.BackgroundColor3 = C.navy
+	left.Size = UDim2.fromScale(0.6, 1)
+	left.Parent = gui
+	gradient(left, nil, 0, NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(0.55, 0.7), NumberSequenceKeypoint.new(1, 1) }))
+	local bottom = Instance.new("Frame")
+	bottom.BorderSizePixel = 0
+	bottom.BackgroundColor3 = C.navy
+	bottom.Position = UDim2.fromScale(0, 0.75)
+	bottom.Size = UDim2.fromScale(1, 0.25)
+	bottom.Parent = gui
+	gradient(bottom, nil, 90, NumberSequence.new(1, 0.35))
+end
+
+------------------------------------------------------------------
+-- ГЛАВНОЕ МЕНЮ (слева)
+------------------------------------------------------------------
+local MENU_HOME = UDim2.new(0, 64, 0.56, 0)
+local menuCol = Instance.new("Frame")
+menuCol.BackgroundTransparency = 1
+menuCol.AnchorPoint = Vector2.new(0, 0.5)
+menuCol.Position = MENU_HOME
+menuCol.Size = UDim2.fromOffset(480, 560)
+menuCol.Parent = gui
+addScale(menuCol)
+
+local mainButtons = {}
+local mainSel = 0
+local inPlay = false
+local openPlay -- объявлена ниже
+
+local y = 0
+for i, item in ipairs(MENU) do
+	local h = item.play and 104 or 56
+	local holder = Instance.new("CanvasGroup")
+	holder.BackgroundTransparency = 1
+	holder.Position = UDim2.fromOffset(-60, y - 4)
+	holder.Size = UDim2.fromOffset(470, h + 8)
+	holder.GroupTransparency = 1
+	holder.Parent = menuCol
+
+	local plate = Instance.new("TextButton")
+	plate.Text = ""
+	plate.AutoButtonColor = false
+	plate.BorderSizePixel = 0
+	plate.Size = UDim2.fromOffset(400, h)
+	plate.Position = UDim2.fromOffset(4, 4)
+	plate.BackgroundColor3 = item.play and C.white or C.btnBg
+	plate.BackgroundTransparency = item.play and 0.1 or 0.3
+	plate.ClipsDescendants = true
+	plate.Parent = holder
+
+	local accent = Instance.new("Frame")
+	accent.BorderSizePixel = 0
+	accent.BackgroundColor3 = C.accent
+	accent.BackgroundTransparency = 1
+	accent.Size = UDim2.new(0, 6, 1, 0)
+	accent.ZIndex = 2
+	accent.Parent = plate
+
+	local text = label(plate, item.name, F_HEAVY, item.play and 64 or 30, C.white)
+	text.Position = UDim2.fromOffset(item.play and 26 or 26, item.play and 6 or 0)
+	text.Size = UDim2.new(1, -70, 0, item.play and 66 or h)
+	text.ZIndex = 3
+
+	local b = { holder = holder, plate = plate, accent = accent, label = text, play = item.play, y = y - 4,
+		stroke = stroke(plate, 0.85, 1.5) }
+
+	if item.play then
+		gradient(plate, ColorSequence.new(C.play1, C.play2), 0)
+		local sub = label(plate, "CASUAL  •  COMPETITIVE  •  TOURNAMENTS", F_BOLD, 15, Color3.fromRGB(205, 228, 255))
+		sub.Position = UDim2.fromOffset(28, 72)
+		sub.Size = UDim2.new(1, -40, 0, 20)
+		sub.ZIndex = 3
+		-- блик, пробегающий по кнопке PLAY
+		local shine = Instance.new("Frame")
+		shine.BorderSizePixel = 0
+		shine.BackgroundColor3 = C.white
+		shine.BackgroundTransparency = 0.55
+		shine.AnchorPoint = Vector2.new(0.5, 0)
+		shine.Size = UDim2.new(0, 90, 1, 0)
+		shine.Position = UDim2.fromScale(-0.3, 0)
+		shine.ZIndex = 2
+		shine.Parent = plate
+		gradient(shine, nil, 0, NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.4), NumberSequenceKeypoint.new(1, 1) }))
+		task.spawn(function()
+			while gui.Parent do
+				shine.Position = UDim2.fromScale(-0.3, 0)
+				tween(shine, 0.9, { Position = UDim2.fromScale(1.3, 0) })
+				task.wait(4)
+			end
+		end)
 	end
-	local grad = Instance.new("UIGradient") -- общий градиент на каждую полосу
-	return f, strips
-end
-local function paint(strips, c1, c2, transp, tween)
-	for i, s in ipairs(strips) do
-		local t = (i - 1) / math.max(1, #strips - 1)
-		local col = c2 and c1:Lerp(c2, t) or c1
-		if tween then
-			TweenService:Create(s, TweenInfo.new(0.12), { BackgroundColor3 = col, BackgroundTransparency = transp }):Play()
-		else
-			s.BackgroundColor3, s.BackgroundTransparency = col, transp
-		end
+
+	if item.badge then
+		local dot = Instance.new("Frame")
+		dot.BackgroundColor3 = C.badge
+		dot.AnchorPoint = Vector2.new(1, 0.5)
+		dot.Position = UDim2.new(1, -18, 0.5, 0)
+		dot.Size = UDim2.fromOffset(24, 24)
+		dot.ZIndex = 4
+		dot.Parent = plate
+		Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+		local ex = label(dot, "!", F_HEAVY, 16, C.white)
+		ex.Size = UDim2.fromScale(1, 1)
+		ex.TextXAlignment = Enum.TextXAlignment.Center
+		ex.ZIndex = 5
 	end
+
+	mainButtons[i] = b
+	y += h + (item.play and 16 or 8)
 end
 
-local function makeButton(parent, text, x, y, w, isSub)
-	local holder = Instance.new("TextButton")
-	holder.Text, holder.AutoButtonColor, holder.BackgroundTransparency = "", false, 1
-	holder.Position, holder.Size = UDim2.fromOffset(x, y), UDim2.fromOffset(w, BTN_H)
-	holder.Parent = parent
-
-	local glow, glowStrips = slantPlate(holder, w + 6, BTN_H + 6, 1)
-	glow.Position = UDim2.fromOffset(-3, -3)
-	paint(glowStrips, C.glow, nil, 1)
-
-	local plate, strips = slantPlate(holder, w, BTN_H, 2)
-	paint(strips, C.btn, nil, isSub and 0.55 or 0.2)
-
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.Position = UDim2.fromOffset(20, 0)
-	label.Size = UDim2.new(1, -40, 1, 0)
-	label.Font, label.TextSize = FONT, 24
-	label.TextXAlignment = Enum.TextXAlignment.Left
-	label.TextColor3 = isSub and C.sub or C.text
-	label.Text, label.ZIndex = text, 3
-	label.Parent = holder
-
-	return { holder = holder, strips = strips, glowStrips = glowStrips, label = label, x = x, y = y, isSub = isSub }
-end
-
-local function setActive(b, on)
-	if on then
-		paint(b.strips, C.sel1, C.sel2, 0, true)
-		paint(b.glowStrips, C.glow, nil, 0.45, true)
-		TweenService:Create(b.label, TweenInfo.new(0.12), { TextColor3 = C.textSel }):Play()
+local function styleMain(b, on)
+	local x = on and 18 or 4
+	if b.play then
+		tween(b.plate, 0.16, { BackgroundTransparency = on and 0 or 0.12, Position = UDim2.fromOffset(x, 4) })
 	else
-		paint(b.strips, C.btn, nil, b.isSub and 0.55 or 0.2, true)
-		paint(b.glowStrips, C.glow, nil, 1, true)
-		TweenService:Create(b.label, TweenInfo.new(0.12), { TextColor3 = b.isSub and C.sub or C.text }):Play()
+		tween(b.plate, 0.16, { BackgroundColor3 = on and C.selBg or C.btnBg, BackgroundTransparency = on and 0.02 or 0.3,
+			Position = UDim2.fromOffset(x, 4) })
+		tween(b.label, 0.16, { TextColor3 = on and C.selText or C.white })
 	end
+	tween(b.stroke, 0.16, { Transparency = on and 0.1 or 0.85, Thickness = on and 2 or 1.5 })
+	tween(b.accent, 0.16, { BackgroundTransparency = (on and not b.play) and 0 or 1 })
 end
-
--- описание под меню
-local desc = Instance.new("TextLabel")
-desc.BackgroundTransparency = 1
-desc.Position = UDim2.fromOffset(4, #MENU * (BTN_H + GAP) + 8)
-desc.Size = UDim2.fromOffset(600, 28)
-desc.Font, desc.TextSize = Enum.Font.Gotham, 21
-desc.TextColor3 = C.text
-desc.TextStrokeTransparency = 0.7
-desc.TextXAlignment = Enum.TextXAlignment.Left
-desc.Parent = root
-
-local main, subs = {}, {}
-local selected, subSelected
-
-local function clearSubs()
-	for _, b in ipairs(subs) do b.holder:Destroy() end
-	table.clear(subs); subSelected = nil
-end
-
-local function selectSub(i)
-	if subSelected and subs[subSelected] then setActive(subs[subSelected], false) end
-	subSelected = i
-	if i and subs[i] then setActive(subs[i], true) end
-end
-
-local function onPress(path) print("[Menu]", path) end
 
 local function selectMain(i)
-	if selected == i then return end
-	if selected then setActive(main[selected], false); main[selected].icon.Visible = false end
-	selected = i
-	setActive(main[i], true); main[i].icon.Visible = true
-	desc.Text = MENU[i].desc
-	clearSubs()
-	local item = MENU[i]
-	if item.sub then
-		local startRow = math.max(1, i - 1)
-		for k, name in ipairs(item.sub) do
-			local b = makeButton(root, name, BTN_W + 34, (startRow + k - 2) * (BTN_H + GAP), SUB_W, true)
-			b.holder.MouseEnter:Connect(function() selectSub(k) end)
-			b.holder.MouseLeave:Connect(function() selectSub(nil) end)
-			b.holder.Activated:Connect(function() onPress(item.name .. " > " .. name) end)
-			subs[k] = b
-		end
+	if i == mainSel then return end
+	if mainButtons[mainSel] then styleMain(mainButtons[mainSel], false) end
+	mainSel = i
+	styleMain(mainButtons[i], true)
+end
+
+local function activateMain(i)
+	selectMain(i)
+	if MENU[i].play then
+		openPlay()
+	else
+		print("[Menu] " .. MENU[i].name)
 	end
 end
 
-for i, item in ipairs(MENU) do
-	local b = makeButton(root, item.name, 0, (i - 1) * (BTN_H + GAP), BTN_W, false)
-	-- значок-кнопка слева от текста у выбранного пункта (как "A" на геймпаде)
-	local icon = Instance.new("TextLabel")
-	icon.Size, icon.Position = UDim2.fromOffset(22, 22), UDim2.fromOffset(12, 7)
-	icon.BackgroundColor3, icon.Text = Color3.fromRGB(60, 180, 90), "A"
-	icon.Font, icon.TextSize, icon.TextColor3 = Enum.Font.GothamBold, 13, Color3.new(1, 1, 1)
-	icon.ZIndex, icon.Visible = 4, false
-	Instance.new("UICorner", icon).CornerRadius = UDim.new(1, 0)
-	icon.Parent = b.holder
-	b.icon = icon
-	-- сдвиг текста когда есть иконка
-	icon:GetPropertyChangedSignal("Visible"):Connect(function()
-		b.label.Position = UDim2.fromOffset(icon.Visible and 44 or 20, 0)
-	end)
-	if item.alert then
-		local a = Instance.new("TextLabel")
-		a.Size, a.AnchorPoint, a.Position = UDim2.fromOffset(22, 22), Vector2.new(1, 0.5), UDim2.new(1, -26, 0.5, 0)
-		a.BackgroundColor3, a.Text = C.alert, "!"
-		a.Font, a.TextSize, a.TextColor3, a.ZIndex = Enum.Font.GothamBold, 16, Color3.new(1, 1, 1), 4
-		Instance.new("UICorner", a).CornerRadius = UDim.new(1, 0)
-		a.Parent = b.holder
-	end
-	b.holder.MouseEnter:Connect(function() selectMain(i) end)
-	b.holder.Activated:Connect(function() selectMain(i); onPress(item.name) end)
-	main[i] = b
+for i, b in ipairs(mainButtons) do
+	b.plate.MouseEnter:Connect(function() if not inPlay then selectMain(i) end end)
+	b.plate.Activated:Connect(function() if not inPlay then activateMain(i) end end)
 end
-selectMain(2)
 
--- клавиатура / геймпад: вверх-вниз, вправо в подменю, Enter
-UIS.InputBegan:Connect(function(input, gp)
-	if gp then return end
-	local k = input.KeyCode
-	if k == Enum.KeyCode.Down or k == Enum.KeyCode.S or k == Enum.KeyCode.DPadDown then
-		if subSelected then selectSub(math.min(#subs, subSelected + 1)) else selectMain(math.min(#MENU, selected + 1)) end
-	elseif k == Enum.KeyCode.Up or k == Enum.KeyCode.W or k == Enum.KeyCode.DPadUp then
-		if subSelected then selectSub(math.max(1, subSelected - 1)) else selectMain(math.max(1, selected - 1)) end
-	elseif (k == Enum.KeyCode.Right or k == Enum.KeyCode.D or k == Enum.KeyCode.DPadRight) and #subs > 0 then
-		selectSub(subSelected or 1)
-	elseif k == Enum.KeyCode.Left or k == Enum.KeyCode.A or k == Enum.KeyCode.DPadLeft or k == Enum.KeyCode.ButtonB then
-		selectSub(nil)
-	elseif k == Enum.KeyCode.Return or k == Enum.KeyCode.ButtonA then
-		if subSelected then onPress(MENU[selected].name .. " > " .. MENU[selected].sub[subSelected])
-		else onPress(MENU[selected].name) end
+local function showMainButtons(visible)
+	for i, b in ipairs(mainButtons) do
+		task.delay(visible and (i - 1) * 0.045 or 0, function()
+			tween(b.holder, 0.3, { GroupTransparency = visible and 0 or 1,
+				Position = UDim2.fromOffset(visible and 0 or -60, b.y) })
+		end)
 	end
+end
+
+------------------------------------------------------------------
+-- ЭКРАН PLAY (режимы)
+------------------------------------------------------------------
+local playScreen = Instance.new("CanvasGroup")
+playScreen.Name = "PlayScreen"
+playScreen.BackgroundColor3 = C.navy
+playScreen.BackgroundTransparency = 0.45
+playScreen.BorderSizePixel = 0
+playScreen.Size = UDim2.fromScale(1, 1)
+playScreen.GroupTransparency = 1
+playScreen.Visible = false
+playScreen.Parent = gui
+
+do
+	local header = Instance.new("Frame")
+	header.BackgroundTransparency = 1
+	header.Position = UDim2.fromOffset(64, 56)
+	header.Size = UDim2.fromOffset(600, 140)
+	header.Parent = playScreen
+	addScale(header)
+	local title = label(header, "PLAY", F_HEAVY, 84, C.white)
+	title.Size = UDim2.new(1, 0, 0, 90)
+	local bar = Instance.new("Frame")
+	bar.BorderSizePixel = 0
+	bar.BackgroundColor3 = C.accent
+	bar.Position = UDim2.fromOffset(4, 96)
+	bar.Size = UDim2.fromOffset(140, 6)
+	bar.Parent = header
+	local crumb = label(header, "CHOOSE A MODE", F_BOLD, 18, Color3.fromRGB(170, 195, 230))
+	crumb.Position = UDim2.fromOffset(4, 112)
+	crumb.Size = UDim2.new(1, 0, 0, 22)
+end
+
+local CARD_W, CARD_H, CARD_GAP = 260, 380, 22
+local row = Instance.new("Frame")
+row.BackgroundTransparency = 1
+row.AnchorPoint = Vector2.new(0.5, 0.5)
+row.Position = UDim2.fromScale(0.5, 0.55)
+row.Size = UDim2.fromOffset(#MODES * CARD_W + (#MODES - 1) * CARD_GAP, CARD_H)
+row.Parent = playScreen
+addScale(row)
+
+local cards, cardSel = {}, 0
+for k, mode in ipairs(MODES) do
+	local btn = Instance.new("TextButton")
+	btn.Text = ""
+	btn.AutoButtonColor = false
+	btn.BackgroundTransparency = 1
+	btn.AnchorPoint = Vector2.new(0.5, 0.5)
+	btn.Size = UDim2.fromOffset(CARD_W, CARD_H)
+	btn.Position = UDim2.fromOffset((k - 1) * (CARD_W + CARD_GAP) + CARD_W / 2, CARD_H / 2)
+	btn.Parent = row
+	local scale = Instance.new("UIScale")
+	scale.Parent = btn
+
+	local face = Instance.new("CanvasGroup")
+	face.BackgroundTransparency = 1
+	face.Size = UDim2.fromScale(1, 1)
+	face.Parent = btn
+
+	local bg = Instance.new("Frame")
+	bg.BorderSizePixel = 0
+	bg.BackgroundColor3 = C.white
+	bg.Size = UDim2.fromScale(1, 1)
+	bg.Parent = face
+	gradient(bg, ColorSequence.new(mode.c1, mode.c2), 90)
+
+	for s = 0, 2 do
+		local stripe = Instance.new("Frame")
+		stripe.BorderSizePixel = 0
+		stripe.BackgroundColor3 = C.white
+		stripe.BackgroundTransparency = 0.9
+		stripe.AnchorPoint = Vector2.new(0.5, 0.5)
+		stripe.Position = UDim2.new(0, 120 + s * 70, 0.4, 0)
+		stripe.Size = UDim2.new(0, 34 - s * 8, 2, 0)
+		stripe.Rotation = 25
+		stripe.Parent = face
+	end
+
+	local big = label(face, mode.big, F_HEAVY, 100, C.white)
+	big.TextTransparency = 0.8
+	big.Position = UDim2.fromOffset(14, 26)
+	big.Size = UDim2.fromOffset(CARD_W, 110)
+	big.Rotation = -6
+
+	local shade = Instance.new("Frame")
+	shade.BorderSizePixel = 0
+	shade.BackgroundColor3 = Color3.new()
+	shade.AnchorPoint = Vector2.new(0, 1)
+	shade.Position = UDim2.fromScale(0, 1)
+	shade.Size = UDim2.fromScale(1, 0.5)
+	shade.Parent = face
+	gradient(shade, nil, 90, NumberSequence.new(1, 0.25))
+
+	local title = label(face, mode.name, F_HEAVY, 34, C.white)
+	title.TextWrapped = true
+	title.TextYAlignment = Enum.TextYAlignment.Bottom
+	title.AnchorPoint = Vector2.new(0, 1)
+	title.Position = UDim2.new(0, 20, 1, -46)
+	title.Size = UDim2.new(1, -36, 0, 84)
+
+	local desc = label(face, mode.desc, F_BODY, 17, Color3.fromRGB(220, 230, 245))
+	desc.AnchorPoint = Vector2.new(0, 1)
+	desc.Position = UDim2.new(0, 20, 1, -18)
+	desc.Size = UDim2.new(1, -36, 0, 22)
+
+	if mode.tag then
+		local pill = Instance.new("TextLabel")
+		pill.AutomaticSize = Enum.AutomaticSize.X
+		pill.BackgroundColor3 = Color3.new()
+		pill.BackgroundTransparency = 0.45
+		pill.Position = UDim2.fromOffset(16, 16)
+		pill.Size = UDim2.fromOffset(0, 26)
+		pill.FontFace = F_BOLD
+		pill.TextSize = 14
+		pill.TextColor3 = C.white
+		pill.Text = mode.tag
+		pill.Parent = face
+		Instance.new("UICorner", pill).CornerRadius = UDim.new(1, 0)
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft, pad.PaddingRight = UDim.new(0, 12), UDim.new(0, 12)
+		pad.Parent = pill
+	end
+
+	local border = Instance.new("Frame")
+	border.BackgroundTransparency = 1
+	border.Size = UDim2.fromScale(1, 1)
+	border.Parent = btn
+	cards[k] = { btn = btn, scale = scale, face = face, stroke = stroke(border, 0.75, 1.5),
+		home = btn.Position }
+end
+
+local function styleCard(c, on)
+	tween(c.scale, 0.15, { Scale = on and 1.06 or 1 })
+	tween(c.stroke, 0.15, { Transparency = on and 0 or 0.75, Thickness = on and 3 or 1.5 })
+	c.btn.ZIndex = on and 2 or 1
+end
+local function selectCard(k)
+	if k == cardSel then return end
+	if cards[cardSel] then styleCard(cards[cardSel], false) end
+	cardSel = k
+	styleCard(cards[k], true)
+end
+local function activateCard(k)
+	selectCard(k)
+	print("[Menu] PLAY > " .. MODES[k].name)
+end
+for k, c in ipairs(cards) do
+	c.btn.MouseEnter:Connect(function() if inPlay then selectCard(k) end end)
+	c.btn.Activated:Connect(function() if inPlay then activateCard(k) end end)
+end
+
+-- кнопка BACK
+local back = Instance.new("TextButton")
+back.Text = ""
+back.AutoButtonColor = false
+back.BorderSizePixel = 0
+back.BackgroundColor3 = C.btnBg
+back.BackgroundTransparency = 0.3
+back.AnchorPoint = Vector2.new(0, 1)
+back.Position = UDim2.new(0, 64, 1, -56)
+back.Size = UDim2.fromOffset(200, 52)
+back.Parent = playScreen
+addScale(back)
+local backStroke = stroke(back, 0.8, 1.5)
+local backLabel = label(back, "‹  BACK", F_HEAVY, 26, C.white)
+backLabel.Position = UDim2.fromOffset(22, 0)
+backLabel.Size = UDim2.new(1, -22, 1, 0)
+back.MouseEnter:Connect(function()
+	tween(back, 0.12, { BackgroundColor3 = C.selBg, BackgroundTransparency = 0 })
+	tween(backLabel, 0.12, { TextColor3 = C.selText })
+	tween(backStroke, 0.12, { Transparency = 0.1 })
+end)
+back.MouseLeave:Connect(function()
+	tween(back, 0.12, { BackgroundColor3 = C.btnBg, BackgroundTransparency = 0.3 })
+	tween(backLabel, 0.12, { TextColor3 = C.white })
+	tween(backStroke, 0.12, { Transparency = 0.8 })
 end)
 
+------------------------------------------------------------------
+-- ПЕРЕХОДЫ
+------------------------------------------------------------------
+function openPlay()
+	if inPlay then return end
+	inPlay = true
+	showMainButtons(false)
+	tween(menuBlur, 0.3, { Size = 10 })
+	playScreen.Visible = true
+	tween(playScreen, 0.25, { GroupTransparency = 0 })
+	for k, c in ipairs(cards) do
+		c.btn.Position = c.home + UDim2.fromOffset(0, 60)
+		task.delay(0.05 + k * 0.04, function()
+			tween(c.btn, 0.35, { Position = c.home })
+		end)
+	end
+	if cardSel == 0 then selectCard(1) end
+end
+
+local function closePlay()
+	if not inPlay then return end
+	inPlay = false
+	tween(menuBlur, 0.3, { Size = 0 })
+	tween(playScreen, 0.2, { GroupTransparency = 1 }).Completed:Connect(function()
+		if not inPlay then playScreen.Visible = false end
+	end)
+	showMainButtons(true)
+end
+back.Activated:Connect(closePlay)
+
+-- клавиатура / геймпад
+local function isKey(k, ...)
+	for _, v in ipairs({ ... }) do if k == v then return true end end
+	return false
+end
+local K = Enum.KeyCode
+table.insert(conns, UIS.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	local k = input.KeyCode
+	local confirm = isKey(k, K.Return, K.KeypadEnter, K.ButtonA)
+	if inPlay then
+		if isKey(k, K.Left, K.A, K.DPadLeft) then
+			selectCard(math.max(1, cardSel - 1))
+		elseif isKey(k, K.Right, K.D, K.DPadRight) then
+			selectCard(math.min(#cards, cardSel + 1))
+		elseif confirm then
+			activateCard(cardSel)
+		elseif isKey(k, K.Backspace, K.ButtonB) then
+			closePlay()
+		end
+	else
+		if isKey(k, K.Up, K.W, K.DPadUp) then
+			selectMain(math.max(1, mainSel - 1))
+		elseif isKey(k, K.Down, K.S, K.DPadDown) then
+			selectMain(math.min(#mainButtons, mainSel + 1))
+		elseif confirm then
+			activateMain(mainSel)
+		end
+	end
+end))
+
+rescale()
+table.insert(conns, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale))
+selectMain(1)
+task.delay(0.2, showMainButtons, true)
+
+------------------------------------------------------------------
+-- ЗАКРЫТИЕ МЕНЮ
+------------------------------------------------------------------
 _G.CloseMainMenu = function()
-	spin:Disconnect()
-	gui:Destroy(); scene:Destroy()
-	for _, e in ipairs(fx) do e:Destroy() end
-	camera.CameraType = Enum.CameraType.Custom
+	for _, c in ipairs(conns) do c:Disconnect() end
+	gui:Destroy()
+	scene:Destroy()
+	for _, e in ipairs(effects) do e:Destroy() end
+	for prop, v in pairs(savedLighting) do Lighting[prop] = v end
+	for _, child in ipairs(stashed) do child.Parent = Lighting end
+	workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
 	pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, true) end)
 end
