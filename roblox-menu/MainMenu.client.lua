@@ -17,8 +17,18 @@ local RunService   = game:GetService("RunService")
 local Lighting     = game:GetService("Lighting")
 local UIS          = game:GetService("UserInputService")
 local StarterGui   = game:GetService("StarterGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+-- СВОИ МОДЕЛИ: положите в ReplicatedStorage > MenuAssets модели с такими именами:
+--   Car   - машинка (подгоняется под длину 8.4 стада)
+--   Ball  - мяч (подгоняется под диаметр 9)
+--   Arena - стадион (заменяет встроенный, подгоняется под длину 200; атрибут Length меняет её)
+-- Если модель стоит боком, добавьте ей атрибут Yaw (число, градусы поворота).
+local ASSETS = ReplicatedStorage:FindFirstChild("MenuAssets")
+local function asset(name) return ASSETS and ASSETS:FindFirstChild(name) end
 pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false) end)
 
 ------------------------------------------------------------------
@@ -150,6 +160,35 @@ local function disc(x, z, d, y, color, material, transparency)
 	return part(Vector3.new(0.04, d, d), at(x, y, z, 0, 0, 90), color, material, transparency, Enum.PartType.Cylinder)
 end
 
+-- копия модели: без скриптов, закреплена, подогнана по размеру
+local function fitModel(src, targetSize, horizontalOnly)
+	local m = src:Clone()
+	if m:IsA("BasePart") then
+		local wrap = Instance.new("Model")
+		m.Parent = wrap
+		wrap.PrimaryPart = m
+		m = wrap
+	end
+	for _, d in ipairs(m:GetDescendants()) do
+		if d:IsA("LuaSourceContainer") then
+			d:Destroy()
+		elseif d:IsA("BasePart") then
+			d.Anchored, d.CanCollide, d.CanTouch, d.CanQuery = true, false, false, false
+		end
+	end
+	local _, size = m:GetBoundingBox()
+	local current = horizontalOnly and math.max(size.X, size.Z) or math.max(size.X, size.Y, size.Z)
+	if current > 0 then m:ScaleTo(m:GetScale() * targetSize / current) end
+	m.Parent = scene
+	return m
+end
+-- ставит модель нижней точкой на ground (Vector3 в мире) с поворотом yaw
+local function standOn(m, ground, yawDeg)
+	m:PivotTo(CFrame.new(ground) * CFrame.Angles(0, math.rad(yawDeg + (m:GetAttribute("Yaw") or 0)), 0))
+	local bb, size = m:GetBoundingBox()
+	m:PivotTo(m:GetPivot() + (ground - (bb.Position - Vector3.new(0, size.Y / 2, 0))))
+end
+
 local FW, FL, WH = 140, 180, 34 -- ширина поля, длина, высота стен
 local HW, HL = FW / 2, FL / 2
 local GOAL_W, GOAL_H, GOAL_D = 36, 13, 12
@@ -159,255 +198,316 @@ local FRAME = Color3.fromRGB(45, 52, 66)
 local LINE  = Color3.fromRGB(235, 240, 255)
 local BOOST = Color3.fromRGB(255, 160, 40)
 
--- газон + полосы покоса + подсветка половин (синяя / оранжевая)
-part(Vector3.new(FW + 60, 1, FL + 60), at(0, -0.5, 0), Color3.fromRGB(58, 102, 36), Enum.Material.Grass)
-for z = -HL, HL - 10, 20 do
-	part(Vector3.new(FW, 0.02, 10), at(0, 0.015, z + 5), Color3.fromRGB(40, 78, 26), nil, 0.55)
-end
-part(Vector3.new(FW, 0.02, HL), at(0, 0.04, -HL / 2), C.orange, Enum.Material.Neon, 0.9)
-part(Vector3.new(FW, 0.02, HL), at(0, 0.04, HL / 2), C.blue, Enum.Material.Neon, 0.9)
+local terrain = workspace.Terrain
+local TERRAIN_CF, TERRAIN_SIZE = at(0, -2, 0), Vector3.new(FW + 60, 4, FL + 60)
+local oldGrassColor = terrain:GetMaterialColor(Enum.Material.Grass)
+local usedTerrain = false
+local orbs, ribbon = {}, {}
 
--- разметка
-local function line(sx, sz, x, z)
-	part(Vector3.new(sx, 0.03, sz), at(x, 0.07, z), LINE, Enum.Material.Neon, 0.25)
-end
-line(FW, 0.5, 0, 0)
-local R, SEG = 16, 48
-for i = 0, SEG - 1 do
-	local a = (i + 0.5) / SEG * math.pi * 2
-	part(Vector3.new(0.5, 0.03, 2 * math.pi * R / SEG + 0.1),
-		at(math.cos(a) * R, 0.07, math.sin(a) * R) * CFrame.Angles(0, -a, 0), LINE, Enum.Material.Neon, 0.25)
-end
-for _, s in ipairs({ -1, 1 }) do
-	line(52, 0.5, 0, s * (HL - 18))
-	line(0.5, 18, -26, s * (HL - 9))
-	line(0.5, 18, 26, s * (HL - 9))
-end
+local function buildStadium()
+	-- газон: Terrain-трава с объёмными травинками (Terrain > Decoration = true)
+	usedTerrain = true
+	pcall(function() terrain.Decoration = true end)
+	terrain:SetMaterialColor(Enum.Material.Grass, Color3.fromRGB(78, 128, 44))
+	terrain:FillBlock(TERRAIN_CF, TERRAIN_SIZE, Enum.Material.Grass)
+	-- подсветка половин (синяя / оранжевая)
+	part(Vector3.new(FW, 0.02, HL), at(0, 0.09, -HL / 2), C.orange, Enum.Material.Neon, 0.9)
+	part(Vector3.new(FW, 0.02, HL), at(0, 0.09, HL / 2), C.blue, Enum.Material.Neon, 0.9)
 
--- бусты
-for _, p in ipairs({ { 0, -64 }, { -28, -36 }, { 28, -36 }, { -28, 36 }, { 28, 36 }, { -50, 0 }, { 50, 0 },
-	{ 0, -22 }, { 0, 22 }, { -18, -70 }, { 18, -70 }, { -18, 70 }, { 18, 70 } }) do
-	disc(p[1], p[2], 4.2, 0.05, Color3.fromRGB(35, 35, 40))
-	disc(p[1], p[2], 2.8, 0.08, BOOST, Enum.Material.Neon, 0.1)
-end
-local orbs = {}
-for _, p in ipairs({ { -60, -78 }, { 60, -78 }, { -60, 78 }, { 60, 78 }, { -60, 0 }, { 60, 0 } }) do
-	disc(p[1], p[2], 6, 0.05, Color3.fromRGB(35, 35, 40))
-	disc(p[1], p[2], 4.5, 0.08, BOOST, Enum.Material.Neon, 0.3)
-	local orb = part(Vector3.new(2.6, 2.6, 2.6), at(p[1], 2.4, p[2]), BOOST, Enum.Material.Neon, 0, Enum.PartType.Ball)
-	local l = Instance.new("PointLight")
-	l.Color, l.Range, l.Brightness = BOOST, 10, 1.5
-	l.Parent = orb
-	table.insert(orbs, { part = orb, base = orb.CFrame, phase = #orbs })
-end
-
--- боковые стены: стекло, закруглённый «пандус», неоновая окантовка
-for _, s in ipairs({ -1, 1 }) do
-	part(Vector3.new(0.6, WH, FL), at(s * (HW + 0.3), WH / 2, 0), GLASS, Enum.Material.Glass, 0.8)
-	part(Vector3.new(0.8, 8, FL), at(s * (HW - 2.83), 2.83, 0, 0, 0, -45 * s), RAMP)
-	for _, h in ipairs({ { HL / 2, C.blue }, { -HL / 2, C.orange } }) do
-		part(Vector3.new(0.5, 0.5, HL), at(s * HW, WH, h[1]), h[2], Enum.Material.Neon)
-		part(Vector3.new(0.4, 0.4, HL), at(s * HW, 5.8, h[1]), h[2], Enum.Material.Neon, 0.2)
+	-- разметка
+	local function line(sx, sz, x, z)
+		part(Vector3.new(sx, 0.03, sz), at(x, 0.12, z), LINE, Enum.Material.Neon, 0.25)
 	end
-	for z = -HL, HL, 15 do
-		part(Vector3.new(0.5, WH, 0.5), at(s * (HW + 0.3), WH / 2, z), FRAME, Enum.Material.Metal)
+	line(FW, 0.5, 0, 0)
+	local R, SEG = 16, 48
+	for i = 0, SEG - 1 do
+		local a = (i + 0.5) / SEG * math.pi * 2
+		part(Vector3.new(0.5, 0.03, 2 * math.pi * R / SEG + 0.1),
+			at(math.cos(a) * R, 0.12, math.sin(a) * R) * CFrame.Angles(0, -a, 0), LINE, Enum.Material.Neon, 0.25)
 	end
-end
-
--- торцевые стены + ворота
-local function endWall(s, team)
-	local z = s * (HL + 0.3)
-	local sideW = HW - GOAL_W / 2
-	for _, sx in ipairs({ -1, 1 }) do
-		local cx = sx * (GOAL_W / 2 + sideW / 2)
-		part(Vector3.new(sideW, WH, 0.6), at(cx, WH / 2, z), GLASS, Enum.Material.Glass, 0.8)
-		part(Vector3.new(sideW, 8, 0.8), at(cx, 2.83, s * (HL - 2.83), 45 * s, 0, 0), RAMP)
+	for _, s in ipairs({ -1, 1 }) do
+		line(52, 0.5, 0, s * (HL - 18))
+		line(0.5, 18, -26, s * (HL - 9))
+		line(0.5, 18, 26, s * (HL - 9))
 	end
-	part(Vector3.new(GOAL_W, WH - GOAL_H, 0.6), at(0, GOAL_H + (WH - GOAL_H) / 2, z), GLASS, Enum.Material.Glass, 0.8)
-	part(Vector3.new(FW, 0.5, 0.5), at(0, WH, s * HL), team, Enum.Material.Neon)
-	-- рамка ворот
-	part(Vector3.new(1, GOAL_H, 1), at(-GOAL_W / 2 - 0.5, GOAL_H / 2, s * HL), team, Enum.Material.Neon)
-	part(Vector3.new(1, GOAL_H, 1), at(GOAL_W / 2 + 0.5, GOAL_H / 2, s * HL), team, Enum.Material.Neon)
-	part(Vector3.new(GOAL_W + 2, 1, 1), at(0, GOAL_H + 0.5, s * HL), team, Enum.Material.Neon)
-	-- сетка
-	local gz = s * (HL + GOAL_D / 2)
-	part(Vector3.new(GOAL_W, GOAL_H, 0.2), at(0, GOAL_H / 2, s * (HL + GOAL_D)), team, Enum.Material.ForceField, 0.1)
-	part(Vector3.new(0.2, GOAL_H, GOAL_D), at(-GOAL_W / 2, GOAL_H / 2, gz), team, Enum.Material.ForceField, 0.1)
-	part(Vector3.new(0.2, GOAL_H, GOAL_D), at(GOAL_W / 2, GOAL_H / 2, gz), team, Enum.Material.ForceField, 0.1)
-	part(Vector3.new(GOAL_W, 0.2, GOAL_D), at(0, GOAL_H, gz), team, Enum.Material.ForceField, 0.1)
-	part(Vector3.new(GOAL_W, 1, GOAL_D), at(0, -0.45, gz), Color3.fromRGB(30, 30, 36))
-	local glow = part(Vector3.new(1, 1, 1), at(0, GOAL_H / 2, gz), team, nil, 1)
-	local pl = Instance.new("PointLight")
-	pl.Color, pl.Range, pl.Brightness = team, 18, 2
-	pl.Parent = glow
-	line(GOAL_W, 0.5, 0, s * (HL - 0.3))
-end
-endWall(-1, C.orange)
-endWall(1, C.blue)
-for _, sx in ipairs({ -1, 1 }) do
-	for _, sz in ipairs({ -1, 1 }) do
-		part(Vector3.new(1.5, WH, 1.5), at(sx * HW, WH / 2, sz * HL), FRAME, Enum.Material.Metal)
+
+	-- бусты
+	for _, p in ipairs({ { 0, -64 }, { -28, -36 }, { 28, -36 }, { -28, 36 }, { 28, 36 }, { -50, 0 }, { 50, 0 },
+		{ 0, -22 }, { 0, 22 }, { -18, -70 }, { 18, -70 }, { -18, 70 }, { 18, 70 } }) do
+		disc(p[1], p[2], 4.2, 0.1, Color3.fromRGB(35, 35, 40))
+		disc(p[1], p[2], 2.8, 0.13, BOOST, Enum.Material.Neon, 0.1)
 	end
-end
-
--- трибуны с болельщиками
-local rng = Random.new(2024)
-local CROWD = {
-	Color3.fromRGB(40, 90, 200), Color3.fromRGB(230, 110, 30), Color3.fromRGB(220, 220, 225),
-	Color3.fromRGB(30, 30, 35), Color3.fromRGB(180, 40, 40), Color3.fromRGB(240, 200, 40),
-	Color3.fromRGB(60, 60, 70), Color3.fromRGB(90, 160, 230),
-}
-local STAND = Color3.fromRGB(30, 28, 36)
-local function fan(x, y, z)
-	if rng:NextNumber() < 0.12 then return end
-	part(Vector3.new(1.4, 2.1, 1.3), at(x + rng:NextNumber(-0.4, 0.4), y + 1.05 + rng:NextNumber(-0.15, 0.25), z),
-		CROWD[rng:NextInteger(1, #CROWD)])
-end
-
-local FS = HL + GOAL_D + 6 -- передний край дальней трибуны
-local farW = FW + 80
-part(Vector3.new(farW, 9, 55), at(0, 4.5, -(FS - 2.5 + 27.5)), STAND, Enum.Material.Concrete)
-for i = 0, 9 do
-	local y, z = 12 + i * 3.2, -FS - i * 5
-	part(Vector3.new(farW, 3.2, 5), at(0, y - 1.6, z), STAND, Enum.Material.Concrete)
-	for x = -farW / 2 + 2, farW / 2 - 2, 3.4 do fan(x, y, z) end
-end
--- светодиодная лента перед трибуной
-local ribbon = {}
-for x = -farW / 2 + 7.5, farW / 2 - 7.5, 15 do
-	local seg = part(Vector3.new(14.6, 3, 0.4), at(x, 6.5, -(FS - 2.8)), (#ribbon % 2 == 0) and C.blue or C.orange, Enum.Material.Neon, 0.1)
-	table.insert(ribbon, seg)
-end
-
-for _, s in ipairs({ -1, 1 }) do
-	part(Vector3.new(34, 4.8, FL + 30), at(s * 90, 2.4, -15), STAND, Enum.Material.Concrete)
-	for i = 0, 7 do
-		local x, y = s * (76 + i * 5), 8 + i * 3.2
-		part(Vector3.new(5, 3.2, FL + 30), at(x, y - 1.6, -15), STAND, Enum.Material.Concrete)
-		for z = -118, 88, 4.5 do fan(x, y, z) end
+	for _, p in ipairs({ { -60, -78 }, { 60, -78 }, { -60, 78 }, { 60, 78 }, { -60, 0 }, { 60, 0 } }) do
+		disc(p[1], p[2], 6, 0.1, Color3.fromRGB(35, 35, 40))
+		disc(p[1], p[2], 4.5, 0.13, BOOST, Enum.Material.Neon, 0.3)
+		local orb = part(Vector3.new(2.6, 2.6, 2.6), at(p[1], 2.4, p[2]), BOOST, Enum.Material.Neon, 0, Enum.PartType.Ball)
+		local l = Instance.new("PointLight")
+		l.Color, l.Range, l.Brightness = BOOST, 10, 1.5
+		l.Parent = orb
+		table.insert(orbs, { part = orb, base = orb.CFrame, phase = #orbs })
 	end
-end
 
--- оранжевые металлические фермы за трибуной
-local TRUSS = Color3.fromRGB(215, 105, 40)
-local tz = -(FS + 52)
-for x = -105, 105, 35 do
-	part(Vector3.new(2.2, 72, 2.2), at(x, 36, tz), TRUSS, Enum.Material.Metal)
-end
-part(Vector3.new(220, 2.5, 2.5), at(0, 70, tz), TRUSS, Enum.Material.Metal)
-part(Vector3.new(220, 2, 2), at(0, 52, tz), TRUSS, Enum.Material.Metal)
-for x = -105, 70, 35 do
-	beam(Vector3.new(x, 52, tz), Vector3.new(x + 35, 70, tz), 1.2, TRUSS, Enum.Material.Metal)
-end
-
--- табло над воротами
-part(Vector3.new(41, 17, 1), at(0, 47, -(HL + 10.3)), Color3.fromRGB(40, 44, 55), Enum.Material.Metal)
-local board = part(Vector3.new(40, 16, 1.2), at(0, 47, -(HL + 10)), Color3.fromRGB(12, 12, 16), Enum.Material.Metal)
-for _, sx in ipairs({ -1, 1 }) do
-	part(Vector3.new(0.4, 20, 0.4), at(sx * 16, 65, -(HL + 10.3)), FRAME, Enum.Material.Metal)
-end
-do
-	local sg = Instance.new("SurfaceGui")
-	sg.Face = Enum.NormalId.Back
-	sg.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
-	sg.CanvasSize = Vector2.new(800, 320)
-	sg.LightInfluence = 0
-	sg.Brightness = 1.6
-	sg.Parent = board
-	local function box(x, w, color, text)
-		local f = Instance.new("TextLabel")
-		f.BorderSizePixel = 0
-		f.BackgroundColor3 = color
-		f.BackgroundTransparency = color == Color3.new() and 1 or 0
-		f.Position = UDim2.fromScale(x, 0.18)
-		f.Size = UDim2.fromScale(w, 0.64)
-		f.FontFace = F_HEAVY
-		f.TextScaled = true
-		f.TextColor3 = C.white
-		f.Text = text
-		f.Parent = sg
-	end
-	box(0.05, 0.25, C.blue, "0")
-	box(0.33, 0.34, Color3.new(), "5:00")
-	box(0.70, 0.25, C.orange, "0")
-end
-
--- мачты освещения
-for _, s in ipairs({ -1, 1 }) do
-	local bx, bz = s * 95, -175
-	part(Vector3.new(2.5, 62, 2.5), at(bx, 31, bz), Color3.fromRGB(60, 62, 70), Enum.Material.Metal)
-	local head = part(Vector3.new(20, 10, 1.5),
-		CFrame.lookAt(ORIGIN + Vector3.new(bx, 62, bz), ORIGIN + Vector3.new(0, 0, 20)),
-		Color3.fromRGB(30, 32, 38), Enum.Material.Metal)
-	for gx = -1, 1 do
-		for gy = -0.5, 0.5 do
-			part(Vector3.new(5.2, 3.6, 0.4), head.CFrame * CFrame.new(gx * 6, gy * 4.6, -0.9),
-				Color3.fromRGB(255, 250, 235), Enum.Material.Neon)
+	-- боковые стены: стекло, закруглённый «пандус», неоновая окантовка
+	for _, s in ipairs({ -1, 1 }) do
+		part(Vector3.new(0.6, WH, FL), at(s * (HW + 0.3), WH / 2, 0), GLASS, Enum.Material.Glass, 0.8)
+		part(Vector3.new(0.8, 8, FL), at(s * (HW - 2.83), 2.83, 0, 0, 0, -45 * s), RAMP)
+		for _, h in ipairs({ { HL / 2, C.blue }, { -HL / 2, C.orange } }) do
+			part(Vector3.new(0.5, 0.5, HL), at(s * HW, WH, h[1]), h[2], Enum.Material.Neon)
+			part(Vector3.new(0.4, 0.4, HL), at(s * HW, 5.8, h[1]), h[2], Enum.Material.Neon, 0.2)
+		end
+		for z = -HL, HL, 15 do
+			part(Vector3.new(0.5, WH, 0.5), at(s * (HW + 0.3), WH / 2, z), FRAME, Enum.Material.Metal)
 		end
 	end
+
+	-- торцевые стены + ворота
+	local function endWall(s, team)
+		local z = s * (HL + 0.3)
+		local sideW = HW - GOAL_W / 2
+		for _, sx in ipairs({ -1, 1 }) do
+			local cx = sx * (GOAL_W / 2 + sideW / 2)
+			part(Vector3.new(sideW, WH, 0.6), at(cx, WH / 2, z), GLASS, Enum.Material.Glass, 0.8)
+			part(Vector3.new(sideW, 8, 0.8), at(cx, 2.83, s * (HL - 2.83), 45 * s, 0, 0), RAMP)
+		end
+		part(Vector3.new(GOAL_W, WH - GOAL_H, 0.6), at(0, GOAL_H + (WH - GOAL_H) / 2, z), GLASS, Enum.Material.Glass, 0.8)
+		part(Vector3.new(FW, 0.5, 0.5), at(0, WH, s * HL), team, Enum.Material.Neon)
+		-- рамка ворот
+		part(Vector3.new(1, GOAL_H, 1), at(-GOAL_W / 2 - 0.5, GOAL_H / 2, s * HL), team, Enum.Material.Neon)
+		part(Vector3.new(1, GOAL_H, 1), at(GOAL_W / 2 + 0.5, GOAL_H / 2, s * HL), team, Enum.Material.Neon)
+		part(Vector3.new(GOAL_W + 2, 1, 1), at(0, GOAL_H + 0.5, s * HL), team, Enum.Material.Neon)
+		-- сетка
+		local gz = s * (HL + GOAL_D / 2)
+		part(Vector3.new(GOAL_W, GOAL_H, 0.2), at(0, GOAL_H / 2, s * (HL + GOAL_D)), team, Enum.Material.ForceField, 0.1)
+		part(Vector3.new(0.2, GOAL_H, GOAL_D), at(-GOAL_W / 2, GOAL_H / 2, gz), team, Enum.Material.ForceField, 0.1)
+		part(Vector3.new(0.2, GOAL_H, GOAL_D), at(GOAL_W / 2, GOAL_H / 2, gz), team, Enum.Material.ForceField, 0.1)
+		part(Vector3.new(GOAL_W, 0.2, GOAL_D), at(0, GOAL_H, gz), team, Enum.Material.ForceField, 0.1)
+		part(Vector3.new(GOAL_W, 1, GOAL_D), at(0, -0.45, gz), Color3.fromRGB(30, 30, 36))
+		local glow = part(Vector3.new(1, 1, 1), at(0, GOAL_H / 2, gz), team, nil, 1)
+		local pl = Instance.new("PointLight")
+		pl.Color, pl.Range, pl.Brightness = team, 18, 2
+		pl.Parent = glow
+		line(GOAL_W, 0.5, 0, s * (HL - 0.3))
+	end
+	endWall(-1, C.orange)
+	endWall(1, C.blue)
+	for _, sx in ipairs({ -1, 1 }) do
+		for _, sz in ipairs({ -1, 1 }) do
+			part(Vector3.new(1.5, WH, 1.5), at(sx * HW, WH / 2, sz * HL), FRAME, Enum.Material.Metal)
+		end
+	end
+
+	-- трибуны с болельщиками
+	local rng = Random.new(2024)
+	local CROWD = {
+		Color3.fromRGB(40, 90, 200), Color3.fromRGB(230, 110, 30), Color3.fromRGB(220, 220, 225),
+		Color3.fromRGB(30, 30, 35), Color3.fromRGB(180, 40, 40), Color3.fromRGB(240, 200, 40),
+		Color3.fromRGB(60, 60, 70), Color3.fromRGB(90, 160, 230),
+	}
+	local STAND = Color3.fromRGB(30, 28, 36)
+	local function fan(x, y, z)
+		if rng:NextNumber() < 0.12 then return end
+		part(Vector3.new(1.4, 2.1, 1.3), at(x + rng:NextNumber(-0.4, 0.4), y + 1.05 + rng:NextNumber(-0.15, 0.25), z),
+			CROWD[rng:NextInteger(1, #CROWD)])
+	end
+
+	local FS = HL + GOAL_D + 6 -- передний край дальней трибуны
+	local farW = FW + 80
+	part(Vector3.new(farW, 9, 55), at(0, 4.5, -(FS - 2.5 + 27.5)), STAND, Enum.Material.Concrete)
+	for i = 0, 9 do
+		local y, z = 12 + i * 3.2, -FS - i * 5
+		part(Vector3.new(farW, 3.2, 5), at(0, y - 1.6, z), STAND, Enum.Material.Concrete)
+		for x = -farW / 2 + 2, farW / 2 - 2, 3.4 do fan(x, y, z) end
+	end
+	-- светодиодная лента перед трибуной
+	for x = -farW / 2 + 7.5, farW / 2 - 7.5, 15 do
+		local seg = part(Vector3.new(14.6, 3, 0.4), at(x, 6.5, -(FS - 2.8)), (#ribbon % 2 == 0) and C.blue or C.orange, Enum.Material.Neon, 0.1)
+		table.insert(ribbon, seg)
+	end
+
+	for _, s in ipairs({ -1, 1 }) do
+		part(Vector3.new(34, 4.8, FL + 30), at(s * 90, 2.4, -15), STAND, Enum.Material.Concrete)
+		for i = 0, 7 do
+			local x, y = s * (76 + i * 5), 8 + i * 3.2
+			part(Vector3.new(5, 3.2, FL + 30), at(x, y - 1.6, -15), STAND, Enum.Material.Concrete)
+			for z = -118, 88, 4.5 do fan(x, y, z) end
+		end
+	end
+
+	-- оранжевые металлические фермы за трибуной
+	local TRUSS = Color3.fromRGB(215, 105, 40)
+	local tz = -(FS + 52)
+	for x = -105, 105, 35 do
+		part(Vector3.new(2.2, 72, 2.2), at(x, 36, tz), TRUSS, Enum.Material.Metal)
+	end
+	part(Vector3.new(220, 2.5, 2.5), at(0, 70, tz), TRUSS, Enum.Material.Metal)
+	part(Vector3.new(220, 2, 2), at(0, 52, tz), TRUSS, Enum.Material.Metal)
+	for x = -105, 70, 35 do
+		beam(Vector3.new(x, 52, tz), Vector3.new(x + 35, 70, tz), 1.2, TRUSS, Enum.Material.Metal)
+	end
+
+	-- табло над воротами
+	part(Vector3.new(41, 17, 1), at(0, 47, -(HL + 10.3)), Color3.fromRGB(40, 44, 55), Enum.Material.Metal)
+	local board = part(Vector3.new(40, 16, 1.2), at(0, 47, -(HL + 10)), Color3.fromRGB(12, 12, 16), Enum.Material.Metal)
+	for _, sx in ipairs({ -1, 1 }) do
+		part(Vector3.new(0.4, 20, 0.4), at(sx * 16, 65, -(HL + 10.3)), FRAME, Enum.Material.Metal)
+	end
+	do
+		local sg = Instance.new("SurfaceGui")
+		sg.Face = Enum.NormalId.Back
+		sg.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+		sg.CanvasSize = Vector2.new(800, 320)
+		sg.LightInfluence = 0
+		sg.Brightness = 1.6
+		sg.Parent = board
+		local function box(x, w, color, text)
+			local f = Instance.new("TextLabel")
+			f.BorderSizePixel = 0
+			f.BackgroundColor3 = color
+			f.BackgroundTransparency = color == Color3.new() and 1 or 0
+			f.Position = UDim2.fromScale(x, 0.18)
+			f.Size = UDim2.fromScale(w, 0.64)
+			f.FontFace = F_HEAVY
+			f.TextScaled = true
+			f.TextColor3 = C.white
+			f.Text = text
+			f.Parent = sg
+		end
+		box(0.05, 0.25, C.blue, "0")
+		box(0.33, 0.34, Color3.new(), "5:00")
+		box(0.70, 0.25, C.orange, "0")
+	end
+
+	-- мачты освещения
+	for _, s in ipairs({ -1, 1 }) do
+		local bx, bz = s * 95, -175
+		part(Vector3.new(2.5, 62, 2.5), at(bx, 31, bz), Color3.fromRGB(60, 62, 70), Enum.Material.Metal)
+		local head = part(Vector3.new(20, 10, 1.5),
+			CFrame.lookAt(ORIGIN + Vector3.new(bx, 62, bz), ORIGIN + Vector3.new(0, 0, 20)),
+			Color3.fromRGB(30, 32, 38), Enum.Material.Metal)
+		for gx = -1, 1 do
+			for gy = -0.5, 0.5 do
+				part(Vector3.new(5.2, 3.6, 0.4), head.CFrame * CFrame.new(gx * 6, gy * 4.6, -0.9),
+					Color3.fromRGB(255, 250, 235), Enum.Material.Neon)
+			end
+		end
+	end
+
+	-- свет над полем
+	for _, p in ipairs({ { -35, -60 }, { 35, -60 }, { -35, 0 }, { 35, 0 }, { -30, 45 }, { 30, 45 } }) do
+		local holder = part(Vector3.new(1, 1, 1), at(p[1], 44, p[2]), C.white, nil, 1)
+		local sl = Instance.new("SpotLight")
+		sl.Face, sl.Angle, sl.Range, sl.Brightness = Enum.NormalId.Bottom, 120, 60, 1.2
+		sl.Color = Color3.fromRGB(255, 244, 228)
+		sl.Parent = holder
+	end
+
 end
 
--- свет над полем
-for _, p in ipairs({ { -35, -60 }, { 35, -60 }, { -35, 0 }, { 35, 0 }, { -30, 45 }, { 30, 45 } }) do
-	local holder = part(Vector3.new(1, 1, 1), at(p[1], 44, p[2]), C.white, nil, 1)
-	local sl = Instance.new("SpotLight")
-	sl.Face, sl.Angle, sl.Range, sl.Brightness = Enum.NormalId.Bottom, 120, 60, 1.2
-	sl.Color = Color3.fromRGB(255, 244, 228)
-	sl.Parent = holder
+local customArena = asset("Arena")
+if customArena then
+	standOn(fitModel(customArena, customArena:GetAttribute("Length") or 200, true), ORIGIN, 0)
+else
+	buildStadium()
 end
 
--- мяч
-local ball = part(Vector3.new(9, 9, 9), at(10, 4.5, -10), Color3.fromRGB(205, 205, 212), nil, 0, Enum.PartType.Ball)
-ball.CastShadow = true
-ball.Reflectance = 0.05
-local ballBase = ball.CFrame
+-- мяч: 12 тёмных пятиугольных и 20 серых шестиугольных панелей
+local function buildBall()
+	local m = Instance.new("Model")
+	m.Name = "MenuBall"
+	local R = 4.5
+	local core = make("Part", Vector3.new(R * 2, R * 2, R * 2), CFrame.new(), Color3.fromRGB(235, 236, 240), nil, 0, m)
+	core.Shape = Enum.PartType.Ball
+	core.CastShadow = true
+	m.PrimaryPart = core
+	local phi = (1 + math.sqrt(5)) / 2
+	local panels = {}
+	local function add(x, y, z, pent) table.insert(panels, { Vector3.new(x, y, z).Unit, pent }) end
+	for _, a in ipairs({ -1, 1 }) do
+		for _, b in ipairs({ -1, 1 }) do
+			add(0, a, b * phi, true); add(a, b * phi, 0, true); add(a * phi, 0, b, true)
+			add(0, a / phi, b * phi, false); add(a / phi, b * phi, 0, false); add(a * phi, 0, b / phi, false)
+			for _, c in ipairs({ -1, 1 }) do add(a, b, c, false) end
+		end
+	end
+	for _, pnl in ipairs(panels) do
+		local n, pent = pnl[1], pnl[2]
+		local d = pent and 1.45 or 1.75
+		local p = make("Part", Vector3.new(0.3, d, d),
+			CFrame.lookAt(n * (R - 0.08), n * R * 2) * CFrame.Angles(0, math.rad(90), 0),
+			pent and Color3.fromRGB(45, 47, 55) or Color3.fromRGB(125, 129, 138), nil, 0, m)
+		p.Shape = Enum.PartType.Cylinder
+		p.Reflectance = 0.05
+	end
+	m.Parent = scene
+	return m
+end
+local ball = asset("Ball") and fitModel(asset("Ball"), 9, false) or buildBall()
+standOn(ball, ORIGIN + Vector3.new(10, 0, -10), 0)
+local ballBase = ball:GetPivot()
 
 ------------------------------------------------------------------
 -- ТЕСТОВАЯ МАШИНКА (заменить на машину игрока)
 ------------------------------------------------------------------
 local CAR_X, CAR_Z, CAR_YAW = 0, 40, 130
 local carBase = at(CAR_X, 0, CAR_Z, 0, CAR_YAW, 0)
-local car = Instance.new("Model")
-car.Name = "ShowcaseCar"
-car.Parent = scene
+local car
 
-local PAINT  = Color3.fromRGB(25, 95, 230)
-local DARK   = Color3.fromRGB(22, 24, 28)
-local WINDOW = Color3.fromRGB(15, 20, 30)
-local TRIM   = Color3.fromRGB(120, 210, 255)
-local function cp(class, size, x, y, z, color, material, rot)
-	local p = make(class, size, carBase * CFrame.new(x, y, z) * (rot or CFrame.identity), color, material, 0, car)
-	p.CastShadow = true
-	return p
-end
-local FLIP = CFrame.Angles(0, math.pi, 0)
-local AXLE_Z = CFrame.Angles(0, math.rad(90), 0)
+local function buildTestCar()
 
-cp("Part", Vector3.new(4.6, 1.3, 8.4), 0, 1.55, 0, PAINT).Reflectance = 0.15
-cp("Part", Vector3.new(4.7, 0.5, 8.0), 0, 0.95, 0, DARK)
-cp("WedgePart", Vector3.new(4.4, 0.8, 2.8), 0, 2.6, -2.8, PAINT).Reflectance = 0.15
-cp("WedgePart", Vector3.new(3.9, 1.5, 1.4), 0, 2.95, -0.7, WINDOW, Enum.Material.Glass)
-cp("Part", Vector3.new(3.9, 1.5, 2.4), 0, 2.95, 1.2, WINDOW, Enum.Material.Glass)
-cp("Part", Vector3.new(3.7, 0.15, 2.2), 0, 3.75, 1.2, PAINT)
-cp("WedgePart", Vector3.new(3.9, 1.5, 1.4), 0, 2.95, 3.1, WINDOW, Enum.Material.Glass, FLIP)
-cp("Part", Vector3.new(5, 0.22, 1.1), 0, 4.3, 3.7, DARK)
-for _, sx in ipairs({ -1, 1 }) do
-	cp("Part", Vector3.new(0.25, 2.1, 0.3), sx * 1.6, 3.25, 3.7, DARK)
-	cp("Part", Vector3.new(0.08, 0.25, 7), sx * 2.33, 1.75, 0, TRIM, Enum.Material.Neon)
-	cp("Part", Vector3.new(0.9, 0.3, 0.12), sx * 1.5, 1.85, -4.22, C.white, Enum.Material.Neon)
-	cp("Part", Vector3.new(0.9, 0.25, 0.12), sx * 1.5, 1.85, 4.22, Color3.fromRGB(255, 40, 40), Enum.Material.Neon)
-	for _, wz in ipairs({ -2.75, 2.75 }) do
-		cp("Part", Vector3.new(1.3, 2.6, 2.6), sx * 2.45, 1.3, wz, Color3.fromRGB(20, 20, 22)).Shape = Enum.PartType.Cylinder
-		cp("Part", Vector3.new(1.36, 1.5, 1.5), sx * 2.45, 1.3, wz, Color3.fromRGB(190, 195, 205), Enum.Material.Metal).Shape = Enum.PartType.Cylinder
-		cp("Part", Vector3.new(1.4, 0.5, 0.5), sx * 2.45, 1.3, wz, TRIM, Enum.Material.Neon).Shape = Enum.PartType.Cylinder
+	local PAINT  = Color3.fromRGB(25, 95, 230)
+	local DARK   = Color3.fromRGB(22, 24, 28)
+	local WINDOW = Color3.fromRGB(15, 20, 30)
+	local TRIM   = Color3.fromRGB(120, 210, 255)
+	local function cp(class, size, x, y, z, color, material, rot)
+		local p = make(class, size, carBase * CFrame.new(x, y, z) * (rot or CFrame.identity), color, material, 0, car)
+		p.CastShadow = true
+		return p
 	end
+	local FLIP = CFrame.Angles(0, math.pi, 0)
+	local AXLE_Z = CFrame.Angles(0, math.rad(90), 0)
+
+	cp("Part", Vector3.new(4.6, 1.3, 8.4), 0, 1.55, 0, PAINT).Reflectance = 0.15
+	cp("Part", Vector3.new(4.7, 0.5, 8.0), 0, 0.95, 0, DARK)
+	cp("WedgePart", Vector3.new(4.4, 0.8, 2.8), 0, 2.6, -2.8, PAINT).Reflectance = 0.15
+	cp("WedgePart", Vector3.new(3.9, 1.5, 1.4), 0, 2.95, -0.7, WINDOW, Enum.Material.Glass)
+	cp("Part", Vector3.new(3.9, 1.5, 2.4), 0, 2.95, 1.2, WINDOW, Enum.Material.Glass)
+	cp("Part", Vector3.new(3.7, 0.15, 2.2), 0, 3.75, 1.2, PAINT)
+	cp("WedgePart", Vector3.new(3.9, 1.5, 1.4), 0, 2.95, 3.1, WINDOW, Enum.Material.Glass, FLIP)
+	cp("Part", Vector3.new(5, 0.22, 1.1), 0, 4.3, 3.7, DARK)
+	for _, sx in ipairs({ -1, 1 }) do
+		cp("Part", Vector3.new(0.25, 2.1, 0.3), sx * 1.6, 3.25, 3.7, DARK)
+		cp("Part", Vector3.new(0.08, 0.25, 7), sx * 2.33, 1.75, 0, TRIM, Enum.Material.Neon)
+		cp("Part", Vector3.new(0.9, 0.3, 0.12), sx * 1.5, 1.85, -4.22, C.white, Enum.Material.Neon)
+		cp("Part", Vector3.new(0.9, 0.25, 0.12), sx * 1.5, 1.85, 4.22, Color3.fromRGB(255, 40, 40), Enum.Material.Neon)
+		for _, wz in ipairs({ -2.75, 2.75 }) do
+			cp("Part", Vector3.new(1.3, 2.6, 2.6), sx * 2.45, 1.3, wz, Color3.fromRGB(20, 20, 22)).Shape = Enum.PartType.Cylinder
+			cp("Part", Vector3.new(1.36, 1.5, 1.5), sx * 2.45, 1.3, wz, Color3.fromRGB(190, 195, 205), Enum.Material.Metal).Shape = Enum.PartType.Cylinder
+			cp("Part", Vector3.new(1.4, 0.5, 0.5), sx * 2.45, 1.3, wz, TRIM, Enum.Material.Neon).Shape = Enum.PartType.Cylinder
+		end
+	end
+	cp("Part", Vector3.new(4.9, 0.3, 0.8), 0, 0.85, -4.3, DARK)
+	cp("Part", Vector3.new(2.2, 0.5, 0.1), 0, 1.4, -4.22, DARK)
+	cp("Part", Vector3.new(0.4, 0.7, 0.7), 0, 1.3, 4.3, DARK, nil, AXLE_Z).Shape = Enum.PartType.Cylinder
+	cp("Part", Vector3.new(0.42, 0.4, 0.4), 0, 1.3, 4.3, TRIM, Enum.Material.Neon, AXLE_Z).Shape = Enum.PartType.Cylinder
+	local shadow = make("Part", Vector3.new(5.6, 0.02, 9.6), carBase * CFrame.new(0, 0.09, 0), Color3.new(), nil, 0.45, car)
+	shadow.CastShadow = false
 end
-cp("Part", Vector3.new(4.9, 0.3, 0.8), 0, 0.85, -4.3, DARK)
-cp("Part", Vector3.new(2.2, 0.5, 0.1), 0, 1.4, -4.22, DARK)
-cp("Part", Vector3.new(0.4, 0.7, 0.7), 0, 1.3, 4.3, DARK, nil, AXLE_Z).Shape = Enum.PartType.Cylinder
-cp("Part", Vector3.new(0.42, 0.4, 0.4), 0, 1.3, 4.3, TRIM, Enum.Material.Neon, AXLE_Z).Shape = Enum.PartType.Cylinder
-local shadow = make("Part", Vector3.new(5.6, 0.02, 9.6), carBase * CFrame.new(0, 0.09, 0), Color3.new(), nil, 0.45, car)
-shadow.CastShadow = false
+
+-- Поставить машинку в меню (модель игрока). Без аргумента - тестовая.
+local function setCar(model)
+	if car then car:Destroy() end
+	if model then
+		car = fitModel(model, 8.4, true)
+		standOn(car, ORIGIN + Vector3.new(CAR_X, 0, CAR_Z), CAR_YAW)
+	else
+		car = Instance.new("Model")
+		car.Parent = scene
+		buildTestCar()
+	end
+	car.Name = "ShowcaseCar"
+end
+_G.SetMenuCar = setCar
+setCar(asset("Car"))
 
 -- свет на машинку (ключевой спереди-слева + синий контровой сзади)
 do
@@ -438,7 +538,7 @@ table.insert(conns, RunService.RenderStepped:Connect(function()
 	for _, o in ipairs(orbs) do
 		o.part.CFrame = o.base * CFrame.new(0, math.sin(t * 2 + o.phase) * 0.25, 0) * CFrame.Angles(0, t, 0)
 	end
-	ball.CFrame = ballBase * CFrame.Angles(0, t * 0.15, 0)
+	ball:PivotTo(ballBase * CFrame.Angles(0, t * 0.15, 0))
 end))
 
 -- лента на трибуне переливается синим/оранжевым
@@ -916,6 +1016,10 @@ _G.CloseMainMenu = function()
 	for _, c in ipairs(conns) do c:Disconnect() end
 	gui:Destroy()
 	scene:Destroy()
+	if usedTerrain then
+		terrain:FillBlock(TERRAIN_CF, TERRAIN_SIZE, Enum.Material.Air)
+		terrain:SetMaterialColor(Enum.Material.Grass, oldGrassColor)
+	end
 	for _, e in ipairs(effects) do e:Destroy() end
 	for prop, v in pairs(savedLighting) do Lighting[prop] = v end
 	for _, child in ipairs(stashed) do child.Parent = Lighting end
