@@ -1,0 +1,982 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Roblox menu preview</title>
+<link rel="icon" href="data:,">
+<!--
+  Draws one scene dump (made by mock.luau + driver.luau) the way Roblox would show it:
+  3D world with three.js (night lighting, neon + bloom, depth of field, blur, colour correction)
+  and the ScreenGui as absolutely positioned DOM on top. Opened by render.mjs as
+  render.html?scene=/work/<scenario>.json  (window.DONE = true when the frame is ready).
+  Look/feel numbers that were tuned by eye live in TUNE below.
+-->
+<style>
+  @font-face { font-family: 'PreviewSans'; font-weight: 400; font-style: normal; src: url(/nm/@fontsource/montserrat/files/montserrat-latin-400-normal.woff2) format('woff2'); }
+  @font-face { font-family: 'PreviewSans'; font-weight: 400; font-style: italic; src: url(/nm/@fontsource/montserrat/files/montserrat-latin-400-italic.woff2) format('woff2'); }
+  @font-face { font-family: 'PreviewSans'; font-weight: 500; font-style: normal; src: url(/nm/@fontsource/montserrat/files/montserrat-latin-500-normal.woff2) format('woff2'); }
+  @font-face { font-family: 'PreviewSans'; font-weight: 500; font-style: italic; src: url(/nm/@fontsource/montserrat/files/montserrat-latin-500-italic.woff2) format('woff2'); }
+  @font-face { font-family: 'PreviewSans'; font-weight: 600; font-style: normal; src: url(/nm/@fontsource/montserrat/files/montserrat-latin-600-normal.woff2) format('woff2'); }
+  @font-face { font-family: 'PreviewSans'; font-weight: 600; font-style: italic; src: url(/nm/@fontsource/montserrat/files/montserrat-latin-600-italic.woff2) format('woff2'); }
+  @font-face { font-family: 'PreviewSans'; font-weight: 700; font-style: normal; src: url(/nm/@fontsource/montserrat/files/montserrat-latin-700-normal.woff2) format('woff2'); }
+  @font-face { font-family: 'PreviewSans'; font-weight: 700; font-style: italic; src: url(/nm/@fontsource/montserrat/files/montserrat-latin-700-italic.woff2) format('woff2'); }
+  @font-face { font-family: 'PreviewSans'; font-weight: 800; font-style: normal; src: url(/nm/@fontsource/montserrat/files/montserrat-latin-800-normal.woff2) format('woff2'); }
+  @font-face { font-family: 'PreviewSans'; font-weight: 800; font-style: italic; src: url(/nm/@fontsource/montserrat/files/montserrat-latin-800-italic.woff2) format('woff2'); }
+  @font-face { font-family: 'PreviewSans'; font-weight: 900; font-style: normal; src: url(/nm/@fontsource/montserrat/files/montserrat-latin-900-normal.woff2) format('woff2'); }
+  @font-face { font-family: 'PreviewSans'; font-weight: 900; font-style: italic; src: url(/nm/@fontsource/montserrat/files/montserrat-latin-900-italic.woff2) format('woff2'); }
+  html, body { margin: 0; background: #000; overflow: hidden; }
+  #stage { position: relative; overflow: hidden; background: #000; }
+  #stage > canvas { position: absolute; left: 0; top: 0; }
+  #gui { position: absolute; left: 0; top: 0; pointer-events: none; }
+  .g { position: absolute; box-sizing: border-box; }
+  .cb { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
+  .ln { position: absolute; white-space: pre; }
+  #err { position: absolute; left: 12px; bottom: 12px; max-width: 70%; background: rgba(160, 0, 0, .85); color: #fff;
+    font: 600 15px/1.35 'DejaVu Sans', sans-serif; padding: 10px 14px; border-radius: 6px; white-space: pre-wrap; }
+</style>
+<script>
+  // any failure still finishes the page, so render.mjs can report it instead of waiting
+  const fail = m => { window.INFO = { notes: ['RENDER FAILED: ' + m] }; window.DONE = true; };
+  window.addEventListener('error', e => fail(e.message + (e.error && e.error.stack ? '\n' + e.error.stack : '')));
+  window.addEventListener('unhandledrejection', e => fail(String(e.reason && (e.reason.stack || e.reason))));
+</script>
+<script type="importmap">{ "imports": { "three": "/nm/three/build/three.module.js", "three/addons/": "/nm/three/examples/jsm/" } }</script>
+</head>
+<body>
+<div id="stage"><canvas id="c3d"></canvas><canvas id="c2d"></canvas><div id="gui"></div></div>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+
+// ------------------------------------------------------------------ tuning (picked by eye against Roblox)
+const TUNE = {
+  neonGain: 2.4,          // neon = unlit colour * gain (HDR, so it blooms)
+  ambient: 0.9,           // Lighting.OutdoorAmbient strength
+  moon: 0.35,             // night directional light (x Lighting.Brightness)
+  sun: 2.6,               // day directional light (x Lighting.Brightness)
+  pointLight: 12,         // PointLight.Brightness -> three.js intensity
+  spotLight: 14,          // SpotLight.Brightness  -> three.js intensity
+  envIntensity: 0.55,     // reflections (x EnvironmentSpecularScale)
+  fogDensity: 0.0042,     // x Atmosphere.Density (exp2 fog)
+  fogNight: 0.22,         // atmosphere colour brightness at night
+  bloomStrength: 0.45,    // x BloomEffect.Intensity
+  bloomRadius: 1 / 60,    // x BloomEffect.Size (0..1)
+  bloomThreshold: 0.62,   // x BloomEffect.Threshold
+  dofMaxPx: 26,           // blur radius (px at 1080p) at DepthOfField intensity 1
+  dofRamp: 40,            // studs from the end of the focus zone to full blur
+  blurPx: 0.55,           // BlurEffect.Size -> gaussian sigma in px (at 1080p)
+  exposure: 1.0,
+  toneMapping: 'aces',    // aces | agx | neutral
+};
+
+const q = new URLSearchParams(location.search);
+const D = await (await fetch(q.get('scene'))).json();
+const [W, H] = D.viewport;
+const SCALE = H / 1080;
+const notes = new Set();
+const note = s => notes.add(s);
+for (const id of ['stage', 'gui']) Object.assign(document.getElementById(id).style, { width: W + 'px', height: H + 'px' });
+
+// ------------------------------------------------------------------ helpers
+const lin = c => new THREE.Color().setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace);
+const css = (c, a = 1) => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${+Math.max(0, Math.min(1, a)).toFixed(4)})`;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+// debug: ?nopost=1 (no DOF/blur), ?nogui=1, ?cam=x,y,z,lookX,lookY,lookZ[,fov]  (world coordinates)
+if (q.get('cam')) {
+  const v = q.get('cam').split(',').map(Number);
+  const at = new THREE.Vector3(v[0], v[1], v[2]), to = new THREE.Vector3(v[3], v[4], v[5]);
+  const m = new THREE.Matrix4().lookAt(at, to, new THREE.Vector3(0, 1, 0));
+  const e = m.elements;
+  D.camera.cf = [at.x, at.y, at.z, e[0], e[4], e[8], e[1], e[5], e[9], e[2], e[6], e[10]];
+  if (v[6]) D.camera.fov = v[6];
+}
+if (q.get('nopost')) D.lighting.children = D.lighting.children.filter(c => !['DepthOfFieldEffect', 'BlurEffect'].includes(c.class));
+if (q.get('nogui')) D.gui = [];
+const CAMCF = D.camera.cf;
+const O = new THREE.Vector3(CAMCF[0], CAMCF[1], CAMCF[2]); // world is shifted so the camera sits at 0,0,0 (float precision)
+function cfMatrix(cf) {
+  return new THREE.Matrix4().set(cf[3], cf[4], cf[5], cf[0] - O.x, cf[6], cf[7], cf[8], cf[1] - O.y, cf[9], cf[10], cf[11], cf[2] - O.z, 0, 0, 0, 1);
+}
+function seqEval(seq, t, idx) { // seq: [[time, v...], ...]
+  if (!seq || !seq.length) return idx === undefined ? 0 : 1;
+  if (t <= seq[0][0]) return seq[0][idx ?? 1];
+  for (let i = 1; i < seq.length; i++) {
+    if (t <= seq[i][0]) {
+      const a = seq[i - 1], b = seq[i], f = (t - a[0]) / Math.max(b[0] - a[0], 1e-6);
+      const k = idx ?? 1;
+      return a[k] + (b[k] - a[k]) * f;
+    }
+  }
+  return seq[seq.length - 1][idx ?? 1];
+}
+const L = D.lighting.props;
+const FX = {};
+for (const c of D.lighting.children) if (c.props.Enabled !== false) FX[c.class] = c.props;
+
+// ------------------------------------------------------------------ renderer
+const canvas3d = document.getElementById('c3d');
+const renderer = new THREE.WebGLRenderer({ canvas: canvas3d, antialias: false, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(1);
+renderer.setSize(W, H, false);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = { aces: THREE.ACESFilmicToneMapping, agx: THREE.AgXToneMapping, neutral: THREE.NeutralToneMapping }[q.get('tm') ?? TUNE.toneMapping];
+renderer.toneMappingExposure = Math.pow(2, L.ExposureCompensation ?? 0) * TUNE.exposure;
+renderer.shadowMap.enabled = !!L.GlobalShadows;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(D.camera.fov, W / H, 0.3, 8000);
+camera.quaternion.setFromRotationMatrix(cfMatrix(CAMCF));
+camera.position.set(0, 0, 0);
+camera.updateMatrixWorld();
+
+// day / night from ClockTime
+const clockTime = L.ClockTime ?? 14;
+const sunElev = Math.sin(((clockTime - 6) / 12) * Math.PI); // 1 at noon, -1 at midnight
+const day = smooth(-0.15, 0.25, sunElev);
+const atm = FX.Atmosphere;
+
+// sky dome (gradient + stars)
+{
+  const zenith = new THREE.Color().lerpColors(lin([0.012, 0.018, 0.045]), lin([0.25, 0.48, 0.9]), day);
+  let horizon = new THREE.Color().lerpColors(lin([0.04, 0.06, 0.12]), lin([0.62, 0.74, 0.9]), day);
+  if (atm) horizon.lerp(lin(atm.Color).multiplyScalar(day > 0.5 ? 1 : TUNE.fogNight), 0.6);
+  const stars = FX.Sky ? (FX.Sky.StarCount ?? 3000) * (1 - day) : 0;
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: { zenith: { value: zenith }, horizon: { value: horizon }, stars: { value: stars / 3000 } },
+    vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `uniform vec3 zenith, horizon; uniform float stars; varying vec3 vDir;
+      float h(vec3 p){ return fract(sin(dot(p, vec3(127.1,311.7,74.7))) * 43758.5453); }
+      void main(){
+        float y = clamp(vDir.y, -0.2, 1.0);
+        vec3 c = mix(horizon, zenith, pow(smoothstep(-0.05, 0.6, y), 0.7));
+        vec3 g = floor(vDir * 400.0);
+        float s = step(1.0 - 0.0035 * stars, h(g)) * smoothstep(0.02, 0.2, y);
+        c += vec3(s) * (0.6 + 0.4 * h(g + 1.0));
+        gl_FragColor = vec4(c, 1.0);
+        #include <colorspace_fragment>
+      }`,
+  });
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(5000, 48, 24), mat);
+  sky.renderOrder = -1;
+  scene.add(sky);
+}
+// fog = Atmosphere
+if (atm) {
+  const fc = lin(atm.Color).multiplyScalar(day > 0.5 ? 0.9 : TUNE.fogNight);
+  scene.fog = new THREE.FogExp2(fc, TUNE.fogDensity * (atm.Density ?? 0.3) * (1 + 0.15 * (atm.Haze ?? 0)));
+}
+
+// light from the sky: ambient + moon/sun
+scene.add(new THREE.AmbientLight(lin(L.OutdoorAmbient ?? [0.27, 0.27, 0.27]), Math.PI * TUNE.ambient * (0.65 + 0.35 * (L.EnvironmentDiffuseScale ?? 1))));
+scene.add(new THREE.HemisphereLight(lin([0.4, 0.44, 0.55]), lin(L.Ambient ?? [0.2, 0.2, 0.2]), 0.12 * (1 - day) + 0.6 * day));
+{
+  const a = (clockTime / 24) * Math.PI * 2 - Math.PI / 2;
+  const sunDir = new THREE.Vector3(Math.cos(a) * 0.6, Math.sin(a), 0.45).normalize();
+  const dir = day > 0.5 ? sunDir : sunDir.clone().negate();
+  const dl = new THREE.DirectionalLight(day > 0.5 ? 0xfff4e0 : 0x9fb4ff, (day > 0.5 ? TUNE.sun : TUNE.moon) * (L.Brightness ?? 2) / 2);
+  // shadows from the sky light (GlobalShadows), in a box in front of the camera
+  const focus = new THREE.Vector3(0, 0, -45).applyQuaternion(camera.quaternion);
+  focus.y = Math.min(focus.y, -2);
+  dl.position.copy(focus).add(dir.multiplyScalar(300));
+  dl.target.position.copy(focus);
+  scene.add(dl.target);
+  if (renderer.shadowMap.enabled) {
+    dl.castShadow = true;
+    dl.shadow.mapSize.set(4096, 4096);
+    Object.assign(dl.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, near: 1, far: 800 });
+    dl.shadow.bias = -0.0004;
+    dl.shadow.normalBias = 0.05;
+  }
+  scene.add(dl);
+}
+
+// reflections: a dark sky with a few bright "stadium light" panels
+{
+  const env = new THREE.Scene();
+  const domeMat = new THREE.ShaderMaterial({ side: THREE.BackSide, uniforms: { day: { value: day } },
+    vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `uniform float day; varying vec3 vDir; void main(){ float y = vDir.y;
+      vec3 night = mix(vec3(0.05,0.06,0.09), vec3(0.015,0.02,0.045), smoothstep(0.0,0.7,y)); night = mix(vec3(0.03,0.045,0.02), night, smoothstep(-0.3,0.0,y));
+      vec3 dayc = mix(vec3(0.6,0.7,0.85), vec3(0.25,0.45,0.9), smoothstep(0.0,0.7,y)); dayc = mix(vec3(0.2,0.25,0.15), dayc, smoothstep(-0.3,0.0,y));
+      gl_FragColor = vec4(mix(night, dayc, day), 1.0); }` });
+  env.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), domeMat));
+  const lamp = new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 5.8, 5.4) });
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + 0.4;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(9, 4), lamp);
+    m.position.set(Math.cos(a) * 40, 22, Math.sin(a) * 40);
+    m.lookAt(0, 0, 0);
+    env.add(m);
+  }
+  const pm = new THREE.PMREMGenerator(renderer);
+  scene.environment = pm.fromScene(env, 0.02).texture;
+  scene.environmentIntensity = TUNE.envIntensity * (L.EnvironmentSpecularScale ?? 1);
+}
+
+// ------------------------------------------------------------------ materials
+function noiseTexture(kind) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  const base = kind === 'grass' ? 205 : 225;
+  g.fillStyle = `rgb(${base},${base},${base})`;
+  g.fillRect(0, 0, 256, 256);
+  let seed = kind === 'grass' ? 7 : 11;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < (kind === 'grass' ? 9000 : 2500); i++) {
+    const v = base + (rnd() - 0.5) * (kind === 'grass' ? 90 : 40);
+    g.fillStyle = `rgb(${v},${v},${v})`;
+    if (kind === 'grass') g.fillRect(rnd() * 256, rnd() * 256, 1 + rnd() * 1.5, 2 + rnd() * 4);
+    else g.fillRect(rnd() * 256, rnd() * 256, 2 + rnd() * 3, 2 + rnd() * 3);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+const TEX = { grass: noiseTexture('grass'), rough: noiseTexture('rough') };
+const ROUGH = { SmoothPlastic: 0.45, Plastic: 0.6, Neon: 1, Glass: 0.05, ForceField: 1, Metal: 0.38, DiamondPlate: 0.4,
+  Foil: 0.25, Concrete: 0.95, Grass: 1, Sand: 1, Slate: 0.9, Brick: 0.9, Wood: 0.8, WoodPlanks: 0.8, Marble: 0.3,
+  Granite: 0.7, Pebble: 0.9, Cobblestone: 0.9, CorrodedMetal: 0.7, Fabric: 1, Ice: 0.15, Rock: 0.9 };
+const matCache = new Map();
+// colour comes from instanceColor (instanced parts) or from `color` (single meshes)
+function partMaterial(material, transparency, reflectance, color, instanced) {
+  const key = [material, transparency.toFixed(3), reflectance.toFixed(3), instanced ? 'i' : color.join(',')].join('|');
+  if (matCache.has(key)) return matCache.get(key);
+  const T = transparency, op = 1 - T;
+  const col = instanced ? new THREE.Color(1, 1, 1) : lin(color);
+  let m;
+  if (material === 'Neon') {
+    // transparent neon loses its glow quickly (a 0.96-transparent neon floor is only a faint tint)
+    m = new THREE.MeshBasicMaterial({ color: col.multiplyScalar(1 + (TUNE.neonGain - 1) * op * op), transparent: T > 0, opacity: op, depthWrite: T < 0.5 });
+  } else if (material === 'ForceField') {
+    m = new THREE.MeshBasicMaterial({ color: col.multiplyScalar(1.4), transparent: true, opacity: op * 0.5,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  } else if (material === 'Glass') {
+    m = new THREE.MeshPhysicalMaterial({ color: col, roughness: 0.05, metalness: 0.1, transparent: true,
+      opacity: T > 0 ? Math.max(op, 0.06) : 0.92, envMapIntensity: 2.2, depthWrite: T < 0.5 });
+  } else {
+    m = new THREE.MeshStandardMaterial({ color: col, roughness: ROUGH[material] ?? 0.7,
+      metalness: material === 'Metal' || material === 'DiamondPlate' || material === 'Foil' ? 0.6 : material === 'CorrodedMetal' ? 0.4 : 0,
+      transparent: T > 0, opacity: op, depthWrite: T < 0.5 });
+    if (material === 'Grass' || material === 'LeafyGrass') m.map = TEX.grass;
+    else if (['Concrete', 'Slate', 'Brick', 'Sand', 'Pebble', 'Rock', 'Granite', 'Cobblestone', 'Asphalt'].includes(material)) m.map = TEX.rough;
+  }
+  if (reflectance > 0 && m.isMeshStandardMaterial) {
+    m.metalness = Math.max(m.metalness, reflectance * 0.9);
+    m.roughness = Math.min(m.roughness, 1 - reflectance * 0.8);
+    m.envMapIntensity = 1 + reflectance * 3;
+  }
+  m.userData.material = material;
+  matCache.set(key, m);
+  return m;
+}
+
+// ------------------------------------------------------------------ part geometry (unit size)
+function orientedGeometry(tris) { // tris: list of [a,b,c] points; oriented away from the centroid
+  const pos = [];
+  const ctr = new THREE.Vector3();
+  let n = 0;
+  for (const t of tris) for (const p of t) { ctr.add(new THREE.Vector3(...p)); n++; }
+  ctr.divideScalar(n);
+  for (const [a, b, c] of tris) {
+    const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), C = new THREE.Vector3(...c);
+    const nrm = B.clone().sub(A).cross(C.clone().sub(A));
+    const mid = A.clone().add(B).add(C).divideScalar(3).sub(ctr);
+    if (nrm.dot(mid) < 0) pos.push(...a, ...c, ...b); else pos.push(...a, ...b, ...c);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+const h = 0.5;
+const GEO = {
+  Block: new THREE.BoxGeometry(1, 1, 1),
+  Ball: new THREE.SphereGeometry(0.5, 40, 20),
+  Cylinder: new THREE.CylinderGeometry(0.5, 0.5, 1, 40).rotateZ(Math.PI / 2), // Roblox cylinders run along X
+  // Roblox WedgePart: full bottom and +Z (back) face, slope from top-back edge down to bottom-front edge
+  Wedge: orientedGeometry([
+    [[-h, -h, -h], [h, -h, -h], [h, -h, h]], [[-h, -h, -h], [h, -h, h], [-h, -h, h]],  // bottom
+    [[-h, -h, h], [h, -h, h], [h, h, h]], [[-h, -h, h], [h, h, h], [-h, h, h]],        // back
+    [[-h, -h, -h], [h, -h, -h], [h, h, h]], [[-h, -h, -h], [h, h, h], [-h, h, h]],     // slope
+    [[-h, -h, -h], [-h, -h, h], [-h, h, h]], [[h, -h, -h], [h, -h, h], [h, h, h]],     // sides
+  ]),
+  CornerWedge: orientedGeometry([
+    [[-h, -h, -h], [h, -h, -h], [h, -h, h]], [[-h, -h, -h], [h, -h, h], [-h, -h, h]],
+    [[h, h, -h], [h, -h, -h], [h, -h, h]], [[h, h, -h], [h, -h, h], [-h, -h, h]],
+    [[h, h, -h], [-h, -h, h], [-h, -h, -h]], [[h, h, -h], [-h, -h, -h], [h, -h, -h]],
+  ]),
+};
+function shapeScale(shape, s) {
+  if (shape === 'Ball') { const d = Math.min(s[0], s[1], s[2]); return [d, d, d]; }
+  if (shape === 'Cylinder') { const d = Math.min(s[1], s[2]); return [s[0], d, d]; }
+  return s;
+}
+
+// ------------------------------------------------------------------ parts (instanced by shape+material)
+const batches = new Map();
+const meshParts = [];
+const partById = new Map();
+for (const p of D.parts) {
+  partById.set(p.id, p);
+  if (p.transparency >= 0.999) continue;
+  if (p.shape === 'Mesh') { meshParts.push(p); continue; }
+  const shape = GEO[p.shape] ? p.shape : 'Block';
+  if (!GEO[p.shape]) note(`part shape ${p.shape} drawn as a block`);
+  const key = [shape, p.material, p.transparency.toFixed(3), (p.reflectance || 0).toFixed(3), p.castShadow].join('|');
+  if (!batches.has(key)) batches.set(key, { shape, p, list: [] });
+  batches.get(key).list.push(p);
+}
+const tmpM = new THREE.Matrix4(), tmpS = new THREE.Matrix4();
+for (const { shape, p, list } of batches.values()) {
+  const mat = partMaterial(p.material, p.transparency, p.reflectance || 0, null, true);
+  const mesh = new THREE.InstancedMesh(GEO[shape], mat, list.length);
+  list.forEach((q2, i) => {
+    const s = shapeScale(shape, q2.size);
+    tmpM.copy(cfMatrix(q2.cf)).multiply(tmpS.makeScale(s[0], s[1], s[2]));
+    mesh.setMatrixAt(i, tmpM);
+    mesh.setColorAt(i, lin(q2.color));
+  });
+  mesh.castShadow = !!p.castShadow && p.transparency < 0.5;
+  mesh.receiveShadow = true;
+  if (p.transparency > 0) mesh.renderOrder = 1;
+  if (mat.map) { // texture repeat for big grass/concrete parts: world-ish UVs via a per-batch average
+    const avg = list.reduce((a, q2) => a + Math.max(q2.size[0], q2.size[2]), 0) / list.length;
+    mat.map = mat.map.clone(); mat.map.needsUpdate = true;
+    mat.map.repeat.set(Math.max(1, avg / 8), Math.max(1, avg / 8));
+  }
+  mesh.computeBoundingSphere();
+  scene.add(mesh);
+}
+
+// ------------------------------------------------------------------ imported meshes (.glb stand-ins)
+const glbCache = new Map();
+const loader = new GLTFLoader();
+async function glbTemplates(file) {
+  if (glbCache.has(file)) return glbCache.get(file);
+  const pr = loader.loadAsync('/models/' + encodeURIComponent(file)).then(gltf => {
+    gltf.scene.updateMatrixWorld(true);
+    const byNode = new Map();
+    const rot = new THREE.Matrix4().makeRotationY(Math.PI); // Roblox Import 3D turns glTF 180 degrees about Y
+    gltf.scene.traverse(o => {
+      const a = gltf.parser.associations.get(o);
+      if (!a || a.nodes === undefined) return;
+      const meshes = [];
+      if (o.isMesh) meshes.push(o);
+      else for (const c of o.children) if (c.isMesh && !gltf.parser.associations.get(c)?.nodes) meshes.push(c);
+      if (!meshes.length) return;
+      const parts = meshes.map(m => ({ geo: m.geometry.clone().applyMatrix4(m.matrixWorld).applyMatrix4(rot), mat: m.material }));
+      const box = new THREE.Box3();
+      for (const pp of parts) { pp.geo.computeBoundingBox(); box.union(pp.geo.boundingBox); }
+      const c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
+      for (const pp of parts) pp.geo.translate(-c.x, -c.y, -c.z);
+      byNode.set(a.nodes, { parts, size });
+    });
+    return byNode;
+  });
+  glbCache.set(file, pr);
+  return pr;
+}
+function robloxSurfaceMaterial(src) { // what a SurfaceAppearance shows: texture maps only, one-sided
+  const m = src.clone();
+  m.side = THREE.FrontSide;
+  if (m.color) m.color.setRGB(1, 1, 1);
+  if (m.emissive) { m.emissive.setRGB(0, 0, 0); m.emissiveMap = null; }
+  m.metalness = m.metalnessMap ? 1 : 0;
+  m.transparent = false;
+  m.opacity = 1;
+  m.alphaTest = 0;
+  return m;
+}
+for (const p of meshParts) {
+  const tpl = (await glbTemplates(p.mesh.glb)).get(p.mesh.node);
+  if (!tpl) { note(`mesh ${p.mesh.glb}#${p.mesh.node} missing`); continue; }
+  const s = [0, 1, 2].map(i => tpl.size.getComponent(i) > 1e-4 ? p.size[i] / tpl.size.getComponent(i) : NaN);
+  const ok = s.filter(Number.isFinite);
+  const fill = ok.length ? ok.reduce((a, b) => a + b, 0) / ok.length : 1;
+  const sc = s.map(v => (Number.isFinite(v) ? v : fill));
+  const g = new THREE.Group();
+  g.matrixAutoUpdate = false;
+  g.matrix.copy(cfMatrix(p.cf)).multiply(new THREE.Matrix4().makeScale(sc[0], sc[1], sc[2]));
+  const plain = !p.surfaceAppearance || p.material === 'Neon' || p.material === 'ForceField' || p.material === 'Glass';
+  for (const part of tpl.parts) {
+    let mat;
+    if (plain) mat = partMaterial(p.material, p.transparency, p.reflectance || 0, p.color, false);
+    else {
+      mat = robloxSurfaceMaterial(part.mat);
+      if (p.transparency > 0) { mat.transparent = true; mat.opacity = 1 - p.transparency; mat.depthWrite = p.transparency < 0.5; }
+    }
+    const m = new THREE.Mesh(part.geo, mat);
+    m.castShadow = !!p.castShadow && p.transparency < 0.5;
+    m.receiveShadow = true;
+    if (p.transparency > 0) m.renderOrder = 2;
+    g.add(m);
+  }
+  scene.add(g);
+}
+
+// ------------------------------------------------------------------ terrain
+{
+  const fills = [];
+  for (const f of D.terrain.fills) {
+    if (f.material === 'Air') { // carve: drop earlier fills that the air block fully covers
+      for (let i = fills.length - 1; i >= 0; i--) if (JSON.stringify(fills[i].cf) === JSON.stringify(f.cf)) fills.splice(i, 1);
+      continue;
+    }
+    fills.push(f);
+  }
+  const DEF = { Grass: [0.42, 0.5, 0.25], LeafyGrass: [0.45, 0.52, 0.29], Sand: [0.56, 0.49, 0.37], Rock: [0.4, 0.42, 0.44],
+    Water: [0.05, 0.33, 0.36], Ground: [0.4, 0.36, 0.23], Snow: [0.76, 0.78, 0.85], Asphalt: [0.45, 0.48, 0.42], Mud: [0.23, 0.18, 0.14] };
+  for (const f of fills) {
+    const col = D.terrain.colors[f.material] ?? DEF[f.material] ?? [0.5, 0.5, 0.5];
+    const geo = f.kind === 'Ball' ? GEO.Ball : f.kind === 'Cylinder' ? new THREE.CylinderGeometry(0.5, 0.5, 1, 40) : GEO.Block;
+    let mat;
+    if (f.material === 'Water') mat = new THREE.MeshPhysicalMaterial({ color: lin(col), roughness: 0.05, transparent: true, opacity: 0.7 });
+    else {
+      mat = new THREE.MeshStandardMaterial({ color: lin(col).multiplyScalar(1.12), roughness: 1, map: TEX.grass.clone() });
+      mat.map.needsUpdate = true;
+      mat.map.repeat.set(f.size[0] / 6, f.size[2] / 6);
+    }
+    const m = new THREE.Mesh(geo, mat);
+    m.matrixAutoUpdate = false;
+    m.matrix.copy(cfMatrix(f.cf)).multiply(new THREE.Matrix4().makeScale(f.size[0], f.size[1], f.size[2]));
+    m.receiveShadow = true;
+    scene.add(m);
+  }
+}
+
+// ------------------------------------------------------------------ lights
+const FACE = { Front: [0, 0, -1], Back: [0, 0, 1], Top: [0, 1, 0], Bottom: [0, -1, 0], Right: [1, 0, 0], Left: [-1, 0, 0] };
+let shadowLights = 0;
+for (const l of D.lights) {
+  if (!l.enabled || l.brightness <= 0 || l.range <= 0) continue;
+  const m = cfMatrix(l.cf);
+  const pos = new THREE.Vector3().setFromMatrixPosition(m);
+  const color = lin(l.color);
+  let light;
+  if (l.class === 'PointLight') {
+    light = new THREE.PointLight(color, l.brightness * TUNE.pointLight, l.range, 1);
+  } else {
+    const d = new THREE.Vector3(...(FACE[l.face] ?? FACE.Front)).transformDirection(m);
+    const ang = THREE.MathUtils.degToRad(clamp(l.angle, 1, 179) / 2);
+    light = new THREE.SpotLight(color, l.brightness * TUNE.spotLight * (l.class === 'SurfaceLight' ? 0.7 : 1), l.range, Math.min(ang, Math.PI / 2 - 0.01), 0.35, 1);
+    light.target.position.copy(pos).add(d);
+    scene.add(light.target);
+  }
+  light.position.copy(pos);
+  if (l.shadows && renderer.shadowMap.enabled && shadowLights < 4) {
+    shadowLights++;
+    light.castShadow = true;
+    light.shadow.mapSize.set(2048, 2048);
+    light.shadow.bias = -0.0004;
+    light.shadow.normalBias = 0.02;
+    light.shadow.camera.near = 0.5;
+    light.shadow.camera.far = l.range;
+  }
+  scene.add(light);
+}
+
+// ------------------------------------------------------------------ GUI layout (shared by ScreenGui DOM and SurfaceGui canvas)
+const measureCtx = document.createElement('canvas').getContext('2d');
+function fontOf(p) {
+  const f = p.FontFace ?? { family: '', weight: 400, style: 'Normal' };
+  const fam = /Arial|Liberation/i.test(f.family) ? "'Liberation Sans', Arial" : /Mono|Code|Inconsolata/i.test(f.family) ? "'DejaVu Sans Mono', monospace" : 'PreviewSans';
+  if (!/Gotham|Montserrat|BuilderSans|Arial|SourceSans|Legacy|Mono|Inconsolata/i.test(f.family)) note(`font ${f.family.replace(/^.*\//, '')} drawn with a Gotham-like stand-in`);
+  return { family: fam, weight: f.weight ?? 400, style: f.style === 'Italic' ? 'italic' : 'normal' };
+}
+const fontCss = (f, size) => `${f.style} ${f.weight} ${size}px ${f.family}`;
+function plainText(p) {
+  let t = String(p.Text ?? '');
+  if (p.RichText) t = t.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  if (p.MaxVisibleGraphemes >= 0) t = [...t].slice(0, p.MaxVisibleGraphemes).join('');
+  return t;
+}
+function wrapLines(text, font, size, maxW, wrap) {
+  measureCtx.font = fontCss(font, size);
+  const out = [];
+  for (const para of text.split('\n')) {
+    if (!wrap) { out.push(para); continue; }
+    const words = [];
+    for (const w of para.split(/(\s+)/)) { // a word wider than the box is broken by characters
+      if (w.trim() !== '' && measureCtx.measureText(w).width > maxW + 0.5) {
+        let cur = '';
+        for (const ch of w) { if (cur && measureCtx.measureText(cur + ch).width > maxW + 0.5) { words.push(cur, ''); cur = ''; } cur += ch; }
+        words.push(cur);
+      } else words.push(w);
+    }
+    let line = '';
+    for (const w of words) {
+      const tryLine = line + w;
+      if (w === '' && line !== '') { out.push(line); line = ''; continue; } // forced break inside a long word
+      if (line.trim() !== '' && measureCtx.measureText(tryLine.trimEnd()).width > maxW + 0.5) {
+        out.push(line.trimEnd());
+        line = w.trimStart();
+      } else line = tryLine;
+    }
+    out.push(line);
+  }
+  return out.map(s => ({ s, w: measureCtx.measureText(s).width }));
+}
+function textLayout(node, box, k) {
+  const p = node.p;
+  const text = plainText(p);
+  const font = fontOf(p);
+  const pad = padding(node, box, k);
+  const bw = box.w - pad.l - pad.r, bh = box.h - pad.t - pad.b;
+  const lh = p.LineHeight ?? 1;
+  const tsc = comp(node, 'UITextSizeConstraint');
+  let size;
+  let lines;
+  if (p.TextScaled) {
+    const maxS = (tsc ? tsc.p.MaxTextSize : 100) * k, minS = (tsc ? tsc.p.MinTextSize : 1) * k;
+    let lo = minS, hi = Math.max(minS, maxS);
+    for (let i = 0; i < 18; i++) {
+      const mid = (lo + hi) / 2;
+      const ls = wrapLines(text, font, mid, bw, true);
+      const fits = ls.every(l => l.w <= bw + 0.5) && ls.length * mid * lh <= bh + 0.5;
+      if (fits) lo = mid; else hi = mid;
+    }
+    size = lo;
+    lines = wrapLines(text, font, size, bw, true);
+  } else {
+    size = (p.TextSize ?? 14) * k;
+    if (tsc) size = clamp(size, tsc.p.MinTextSize * k, tsc.p.MaxTextSize * k);
+    lines = wrapLines(text, font, size, bw, !!p.TextWrapped);
+  }
+  if (p.TextTruncate && p.TextTruncate !== 'None') {
+    measureCtx.font = fontCss(font, size);
+    lines = lines.map(l => {
+      if (l.w <= bw + 0.5) return l;
+      let s = l.s;
+      while (s.length > 1 && measureCtx.measureText(s + '…').width > bw) s = s.slice(0, -1);
+      return { s: s + '…', w: measureCtx.measureText(s + '…').width };
+    });
+  }
+  const lineH = size * lh;
+  const totalH = lines.length * lineH;
+  const xa = p.TextXAlignment ?? 'Center', ya = p.TextYAlignment ?? 'Center';
+  const y0 = pad.t + (ya === 'Top' ? 0 : ya === 'Bottom' ? bh - totalH : (bh - totalH) / 2);
+  const placed = lines.map((l, i) => ({ s: l.s, w: l.w,
+    x: pad.l + (xa === 'Left' ? 0 : xa === 'Right' ? bw - l.w : (bw - l.w) / 2), y: y0 + i * lineH }));
+  return { font, size, lineH, lines: placed, natW: Math.max(0, ...lines.map(l => l.w)), natH: totalH, pad };
+}
+const isGuiObj = n => ['Frame', 'TextLabel', 'TextButton', 'TextBox', 'ImageLabel', 'ImageButton', 'ScrollingFrame', 'CanvasGroup', 'ViewportFrame', 'VideoFrame'].includes(n.c);
+const isText = n => n.c === 'TextLabel' || n.c === 'TextButton' || n.c === 'TextBox';
+function comp(node, cls) { return node.k.find(c => c.c === cls && c.p.Enabled !== false); }
+function padding(node, box, k) {
+  const pd = comp(node, 'UIPadding');
+  if (!pd) return { l: 0, r: 0, t: 0, b: 0 };
+  const u = (v, dim) => v[0] * dim + v[1] * k;
+  return { l: u(pd.p.PaddingLeft, box.w), r: u(pd.p.PaddingRight, box.w), t: u(pd.p.PaddingTop, box.h), b: u(pd.p.PaddingBottom, box.h) };
+}
+// box of `node` inside parent content box `cb` (abs coords), kParent = product of ancestor UIScales
+function computeBox(node, cb, kParent) {
+  const p = node.p;
+  const us = comp(node, 'UIScale');
+  const s = us ? us.p.Scale : 1;
+  const k = kParent * s;
+  const pw = cb.w, ph = cb.h;
+  const sx = p.SizeConstraint === 'RelativeYY' ? ph : pw, sy = p.SizeConstraint === 'RelativeXX' ? pw : ph;
+  let w = (p.Size[0] * sx + p.Size[1] * kParent) * s;
+  let h2 = (p.Size[2] * sy + p.Size[3] * kParent) * s;
+  const sc = comp(node, 'UISizeConstraint');
+  if (sc) { w = clamp(w, sc.p.MinSize[0], sc.p.MaxSize[0]); h2 = clamp(h2, sc.p.MinSize[1], sc.p.MaxSize[1]); }
+  const ar = comp(node, 'UIAspectRatioConstraint');
+  if (ar && ar.p.AspectRatio > 0) {
+    const r = ar.p.AspectRatio;
+    if (ar.p.AspectType === 'ScaleWithParentSize') { if (ar.p.DominantAxis === 'Height') w = h2 * r; else h2 = w / r; }
+    else if (w / Math.max(h2, 1e-6) > r) w = h2 * r; else h2 = w / r;
+  }
+  const box = { w, h: h2, k, s };
+  const auto = p.AutomaticSize ?? 'None';
+  if (auto !== 'None' && isText(node) && String(p.Text ?? '') !== '') {
+    const tl = textLayout({ ...node, p: { ...p, TextWrapped: auto === 'Y' ? p.TextWrapped : false, TextScaled: false } }, box, k);
+    if (auto === 'X' || auto === 'XY') box.w = Math.max(box.w, tl.natW + tl.pad.l + tl.pad.r);
+    if (auto === 'Y' || auto === 'XY') box.h = Math.max(box.h, tl.natH + tl.pad.t + tl.pad.b);
+  } else if (auto !== 'None') {
+    let mx = 0, my = 0;
+    for (const c of node.k) if (isGuiObj(c) && c.p.Visible !== false) {
+      const cbx = computeBox(c, { x: 0, y: 0, w: box.w, h: box.h }, k);
+      mx = Math.max(mx, cbx.x + cbx.w); my = Math.max(my, cbx.y + cbx.h);
+    }
+    const pd = padding(node, box, k);
+    if (auto !== 'Y') box.w = Math.max(box.w, mx + pd.r);
+    if (auto !== 'X') box.h = Math.max(box.h, my + pd.b);
+  }
+  box.x = cb.x + p.Position[0] * pw + p.Position[1] * kParent - p.AnchorPoint[0] * box.w;
+  box.y = cb.y + p.Position[2] * ph + p.Position[3] * kParent - p.AnchorPoint[1] * box.h;
+  return box;
+}
+function sortedChildren(node) {
+  return node.k.filter(c => isGuiObj(c) && c.p.Visible !== false)
+    .map((c, i) => ({ c, i })).sort((a, b) => (a.c.p.ZIndex ?? 1) - (b.c.p.ZIndex ?? 1) || a.i - b.i).map(x => x.c);
+}
+// children boxes, honouring UIListLayout / UIGridLayout
+function childBoxes(node, cb, k) {
+  const kids = sortedChildren(node);
+  const boxes = new Map();
+  const list = comp(node, 'UIListLayout'), grid = comp(node, 'UIGridLayout');
+  if (!list && !grid) { for (const c of kids) boxes.set(c, computeBox(c, cb, k)); return boxes; }
+  const ordered = [...kids].sort((a, b) => list?.p.SortOrder === 'Name' || grid?.p.SortOrder === 'Name'
+    ? String(a.p.Name).localeCompare(String(b.p.Name)) : (a.p.LayoutOrder ?? 0) - (b.p.LayoutOrder ?? 0));
+  if (list) {
+    const vert = list.p.FillDirection !== 'Horizontal';
+    const gap = list.p.Padding[0] * (vert ? cb.h : cb.w) + list.p.Padding[1] * k;
+    const bs = ordered.map(c => computeBox(c, cb, k));
+    const total = bs.reduce((a, b) => a + (vert ? b.h : b.w), 0) + gap * Math.max(0, bs.length - 1);
+    const main = vert ? list.p.VerticalAlignment : list.p.HorizontalAlignment;
+    let cur = (main === 'Center' ? ((vert ? cb.h : cb.w) - total) / 2 : main === 'Bottom' || main === 'Right' ? (vert ? cb.h : cb.w) - total : 0);
+    ordered.forEach((c, i) => {
+      const b = bs[i];
+      const cross = vert ? list.p.HorizontalAlignment : list.p.VerticalAlignment;
+      if (vert) {
+        b.y = cb.y + cur;
+        b.x = cb.x + (cross === 'Center' ? (cb.w - b.w) / 2 : cross === 'Right' ? cb.w - b.w : 0);
+        cur += b.h + gap;
+      } else {
+        b.x = cb.x + cur;
+        b.y = cb.y + (cross === 'Center' ? (cb.h - b.h) / 2 : cross === 'Bottom' ? cb.h - b.h : 0);
+        cur += b.w + gap;
+      }
+      boxes.set(c, b);
+    });
+  } else {
+    const cw = grid.p.CellSize[0] * cb.w + grid.p.CellSize[1] * k, ch = grid.p.CellSize[2] * cb.h + grid.p.CellSize[3] * k;
+    const gx = grid.p.CellPadding[0] * cb.w + grid.p.CellPadding[1] * k, gy = grid.p.CellPadding[2] * cb.h + grid.p.CellPadding[3] * k;
+    const horiz = grid.p.FillDirection !== 'Vertical';
+    const per = Math.max(1, horiz ? Math.floor((cb.w + gx) / (cw + gx)) : Math.floor((cb.h + gy) / (ch + gy)));
+    ordered.forEach((c, i) => {
+      const col = horiz ? i % per : Math.floor(i / per), row = horiz ? Math.floor(i / per) : i % per;
+      boxes.set(c, { x: cb.x + col * (cw + gx), y: cb.y + row * (ch + gy), w: cw, h: ch, k, s: 1 });
+    });
+  }
+  return boxes;
+}
+function cornerRadius(node, box) {
+  const c = comp(node, 'UICorner');
+  if (!c) return 0;
+  const m = Math.min(box.w, box.h);
+  return Math.min(c.p.CornerRadius[0] * m + c.p.CornerRadius[1] * box.k, m / 2);
+}
+// background paint: plain colour or UIGradient (CSS linear-gradient string + stops for canvas)
+function backgroundPaint(node) {
+  const p = node.p;
+  const baseA = 1 - (p.BackgroundTransparency ?? 0);
+  if (baseA <= 0.001) return null;
+  const g = comp(node, 'UIGradient');
+  if (!g) return { solid: css(p.BackgroundColor3, baseA) };
+  return { gradient: gradientStops(g, p.BackgroundColor3, baseA), rotation: g.p.Rotation ?? 0 };
+}
+function gradientStops(g, base, baseA) {
+  const off = g.p.Offset ?? [0, 0];
+  const rad = THREE.MathUtils.degToRad(g.p.Rotation ?? 0);
+  const shift = off[0] * Math.cos(rad) + off[1] * Math.sin(rad);
+  const times = new Set([0, 1]);
+  for (const kp of g.p.Color) times.add(clamp(kp[0] + shift, 0, 1));
+  for (const kp of g.p.Transparency) times.add(clamp(kp[0] + shift, 0, 1));
+  return [...times].sort((a, b) => a - b).map(t => {
+    const u = t - shift;
+    const c = [1, 2, 3].map(i => base[i - 1] * seqEval(g.p.Color, u, i));
+    return { t, color: c, a: baseA * (1 - seqEval(g.p.Transparency, u, 1)) };
+  });
+}
+const gradientCss = (stops, rotation) => `linear-gradient(${90 + rotation}deg, ${stops.map(s => `${css(s.color, s.a)} ${(s.t * 100).toFixed(2)}%`).join(', ')})`;
+function strokes(node) { return node.k.filter(c => c.c === 'UIStroke' && c.p.Enabled !== false); }
+function strokeIsText(node, st) { return isText(node) && (st.p.ApplyStrokeMode ?? 'Contextual') === 'Contextual'; }
+
+// ------------------------------------------------------------------ ScreenGui -> DOM
+const guiRoot = document.getElementById('gui');
+function buildDom(node, box, parentEl, parentBox) {
+  const p = node.p;
+  const el = document.createElement('div');
+  el.className = 'g';
+  Object.assign(el.style, { left: `${box.x - parentBox.x}px`, top: `${box.y - parentBox.y}px`, width: `${Math.max(box.w, 0)}px`, height: `${Math.max(box.h, 0)}px` });
+  if (p.Rotation) el.style.transform = `rotate(${p.Rotation}deg)`;
+  const r = cornerRadius(node, box);
+  if (r > 0) el.style.borderRadius = `${r}px`;
+  const bg = backgroundPaint(node);
+  if (bg?.solid) el.style.background = bg.solid;
+  else if (bg?.gradient) el.style.background = gradientCss(bg.gradient, bg.rotation);
+  const shadows = [];
+  const bgA = 1 - (p.BackgroundTransparency ?? 0);
+  if ((p.BorderSizePixel ?? 0) > 0 && bgA > 0.001 && r === 0 && node.c !== 'CanvasGroup') {
+    const bs = p.BorderSizePixel;
+    if (p.BorderMode === 'Inset') shadows.push(`inset 0 0 0 ${bs}px ${css(p.BorderColor3, bgA)}`);
+    else shadows.push(`0 0 0 ${p.BorderMode === 'Middle' ? bs / 2 : bs}px ${css(p.BorderColor3, bgA)}`);
+  }
+  const textShadows = [];
+  for (const st of strokes(node)) {
+    const a = 1 - st.p.Transparency, th = st.p.Thickness * (st.p.StrokeSizingMode === 'ScaledSize' ? box.k : 1);
+    if (a <= 0.001 || th <= 0) continue;
+    if (strokeIsText(node, st)) textShadows.push({ th, c: css(st.p.Color, a) });
+    else {
+      const pos = st.p.BorderStrokePosition ?? 'Outer';
+      shadows.push(pos === 'Inner' ? `inset 0 0 0 ${th}px ${css(st.p.Color, a)}` : `0 0 0 ${pos === 'Center' ? th / 2 : th}px ${css(st.p.Color, a)}`);
+    }
+  }
+  if (shadows.length) el.style.boxShadow = shadows.join(', ');
+  if (node.c === 'CanvasGroup') {
+    el.style.opacity = String(1 - (p.GroupTransparency ?? 0));
+    el.style.overflow = 'hidden';
+    if (p.GroupColor3 && p.GroupColor3.some(v => v < 0.999)) note('CanvasGroup.GroupColor3 tint is not drawn');
+  }
+  if ((node.c === 'ImageLabel' || node.c === 'ImageButton') && p.Image) note('ImageLabel/ImageButton pictures are not drawn (asset ids cannot be fetched offline)');
+  if (node.c === 'ViewportFrame') note('ViewportFrame contents are not drawn');
+  parentEl.appendChild(el);
+  // own text (under the children)
+  if (isText(node)) {
+    const tl = textLayout(node, box, box.k);
+    const ta = 1 - (p.TextTransparency ?? 0);
+    if (ta > 0.001 && tl.lines.some(l => l.s !== '')) {
+      if ((p.TextStrokeTransparency ?? 1) < 1) textShadows.push({ th: 1, c: css(p.TextStrokeColor3, (1 - p.TextStrokeTransparency) * ta) });
+      const g = comp(node, 'UIGradient');
+      for (const l of tl.lines) {
+        const s = document.createElement('div');
+        s.className = 'ln';
+        s.textContent = l.s;
+        Object.assign(s.style, { left: `${l.x}px`, top: `${l.y}px`, font: fontCss(tl.font, tl.size), lineHeight: `${tl.lineH}px`, color: css(p.TextColor3, ta) });
+        if (textShadows.length) {
+          const sh = [];
+          for (const t of textShadows) for (let a = 0; a < 16; a++) {
+            const an = (a / 16) * Math.PI * 2;
+            sh.push(`${(Math.cos(an) * t.th).toFixed(2)}px ${(Math.sin(an) * t.th).toFixed(2)}px 0 ${t.c}`);
+          }
+          s.style.textShadow = sh.join(', ');
+        }
+        if (g) {
+          s.style.backgroundImage = gradientCss(gradientStops(g, p.TextColor3, ta), g.p.Rotation ?? 0);
+          s.style.webkitBackgroundClip = 'text';
+          s.style.color = 'transparent';
+        }
+        el.appendChild(s);
+      }
+    }
+  }
+  // children
+  const holder = document.createElement('div');
+  holder.className = 'cb';
+  if (p.ClipsDescendants || node.c === 'ScrollingFrame') { holder.style.overflow = 'hidden'; if (r > 0) holder.style.borderRadius = `${r}px`; }
+  el.appendChild(holder);
+  const pad = padding(node, box, box.k);
+  const cb = { x: box.x + pad.l, y: box.y + pad.t, w: box.w - pad.l - pad.r, h: box.h - pad.t - pad.b };
+  if (node.c === 'ScrollingFrame') { const cp = p.CanvasPosition ?? [0, 0]; cb.x -= cp[0]; cb.y -= cp[1]; }
+  for (const [c, b] of childBoxes(node, cb, box.k)) buildDom(c, b, holder, box);
+}
+
+// ------------------------------------------------------------------ SurfaceGui -> canvas texture
+function paintCanvas(ctx, node, box, alpha) {
+  const p = node.p;
+  ctx.save();
+  if (p.Rotation) { ctx.translate(box.x + box.w / 2, box.y + box.h / 2); ctx.rotate(THREE.MathUtils.degToRad(p.Rotation)); ctx.translate(-(box.x + box.w / 2), -(box.y + box.h / 2)); }
+  if (node.c === 'CanvasGroup') alpha *= 1 - (p.GroupTransparency ?? 0);
+  ctx.globalAlpha = alpha;
+  const r = cornerRadius(node, box);
+  const path = () => { ctx.beginPath(); ctx.roundRect(box.x, box.y, box.w, box.h, r); };
+  const bg = backgroundPaint(node);
+  if (bg) {
+    if (bg.solid) ctx.fillStyle = bg.solid;
+    else {
+      const a = THREE.MathUtils.degToRad(bg.rotation), cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+      const len = Math.abs(box.w * Math.cos(a)) + Math.abs(box.h * Math.sin(a));
+      const gr = ctx.createLinearGradient(cx - Math.cos(a) * len / 2, cy - Math.sin(a) * len / 2, cx + Math.cos(a) * len / 2, cy + Math.sin(a) * len / 2);
+      for (const s of bg.gradient) gr.addColorStop(s.t, css(s.color, s.a));
+      ctx.fillStyle = gr;
+    }
+    path(); ctx.fill();
+  }
+  for (const st of strokes(node)) {
+    if (strokeIsText(node, st)) continue;
+    const a = 1 - st.p.Transparency;
+    if (a <= 0.001) continue;
+    ctx.strokeStyle = css(st.p.Color, a); ctx.lineWidth = st.p.Thickness;
+    const o = st.p.Thickness / 2;
+    ctx.beginPath(); ctx.roundRect(box.x - o, box.y - o, box.w + 2 * o, box.h + 2 * o, r + o); ctx.stroke();
+  }
+  if (isText(node)) {
+    const tl = textLayout(node, box, box.k);
+    const ta = 1 - (p.TextTransparency ?? 0);
+    ctx.font = fontCss(tl.font, tl.size);
+    ctx.textBaseline = 'alphabetic';
+    const m = ctx.measureText('Hg');
+    const asc = m.fontBoundingBoxAscent, desc = m.fontBoundingBoxDescent;
+    ctx.fillStyle = css(p.TextColor3, ta);
+    for (const l of tl.lines) ctx.fillText(l.s, box.x + l.x, box.y + l.y + (tl.lineH - (asc + desc)) / 2 + asc);
+  }
+  if (p.ClipsDescendants) { path(); ctx.clip(); }
+  const pad = padding(node, box, box.k);
+  const cb = { x: box.x + pad.l, y: box.y + pad.t, w: box.w - pad.l - pad.r, h: box.h - pad.t - pad.b };
+  for (const [c, b] of childBoxes(node, cb, box.k)) paintCanvas(ctx, c, b, alpha);
+  ctx.restore();
+}
+const FACE_BASIS = { // canvas right (r), canvas up (u), normal (n) in part space; size axes
+  Back: { r: [1, 0, 0], u: [0, 1, 0], n: [0, 0, 1], w: 0, h: 1 }, Front: { r: [-1, 0, 0], u: [0, 1, 0], n: [0, 0, -1], w: 0, h: 1 },
+  Right: { r: [0, 0, -1], u: [0, 1, 0], n: [1, 0, 0], w: 2, h: 1 }, Left: { r: [0, 0, 1], u: [0, 1, 0], n: [-1, 0, 0], w: 2, h: 1 },
+  Top: { r: [1, 0, 0], u: [0, 0, -1], n: [0, 1, 0], w: 0, h: 2 }, Bottom: { r: [1, 0, 0], u: [0, 0, 1], n: [0, -1, 0], w: 0, h: 2 },
+};
+async function buildSurfaceGuis() {
+  for (const sg of D.surfaceGuis) {
+    const part = partById.get(sg.part);
+    if (!part) continue;
+    const p = sg.p, fb = FACE_BASIS[p.Face] ?? FACE_BASIS.Front;
+    const fw = part.size[fb.w], fh = part.size[fb.h];
+    const cw = p.SizingMode === 'PixelsPerStud' ? fw * p.PixelsPerStud : p.CanvasSize[0];
+    const ch = p.SizingMode === 'PixelsPerStud' ? fh * p.PixelsPerStud : p.CanvasSize[1];
+    const cv = document.createElement('canvas');
+    const res = Math.min(2, 2048 / Math.max(cw, ch));
+    cv.width = Math.round(cw * res); cv.height = Math.round(ch * res);
+    const ctx = cv.getContext('2d');
+    ctx.scale(res, res);
+    const root = { x: 0, y: 0, w: cw, h: ch };
+    for (const [c, b] of childBoxes(sg, root, 1)) paintCanvas(ctx, c, b, 1);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 8;
+    const unlit = (p.LightInfluence ?? 1) < 0.5;
+    const mat = unlit
+      ? new THREE.MeshBasicMaterial({ map: tex, transparent: true, color: new THREE.Color(1, 1, 1).multiplyScalar(p.Brightness ?? 1), depthWrite: false })
+      : new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.8, depthWrite: false });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(fw, fh), mat);
+    const basis = new THREE.Matrix4().makeBasis(new THREE.Vector3(...fb.r), new THREE.Vector3(...fb.u), new THREE.Vector3(...fb.n));
+    const off = part.size[fb.n.findIndex(v => v !== 0)] / 2 + 0.01;
+    mesh.matrixAutoUpdate = false;
+    mesh.matrix.copy(cfMatrix(part.cf)).multiply(new THREE.Matrix4().makeTranslation(fb.n[0] * off, fb.n[1] * off, fb.n[2] * off)).multiply(basis);
+    mesh.renderOrder = 3;
+    scene.add(mesh);
+  }
+}
+
+// ------------------------------------------------------------------ post: depth of field
+class DofPass extends Pass {
+  constructor(dof) {
+    super();
+    this.material = new THREE.ShaderMaterial({
+      uniforms: { tDiffuse: { value: null }, tDepth: { value: null }, res: { value: new THREE.Vector2(W, H) },
+        near: { value: camera.near }, far: { value: camera.far },
+        focusFar: { value: dof.FocusDistance + dof.InFocusRadius }, focusNear: { value: Math.max(0, dof.FocusDistance - dof.InFocusRadius) },
+        ramp: { value: TUNE.dofRamp }, farPx: { value: TUNE.dofMaxPx * SCALE * dof.FarIntensity }, nearPx: { value: TUNE.dofMaxPx * SCALE * dof.NearIntensity } },
+      vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+      fragmentShader: `
+        uniform sampler2D tDiffuse, tDepth; uniform vec2 res; uniform float near, far, focusFar, focusNear, ramp, farPx, nearPx;
+        varying vec2 vUv;
+        float viewZ(vec2 uv){ float d = texture2D(tDepth, uv).x; float z = d * 2.0 - 1.0; return (2.0 * near * far) / (far + near - z * (far - near)); }
+        float coc(vec2 uv){ float z = viewZ(uv);
+          return farPx * smoothstep(focusFar, focusFar + ramp, z) + nearPx * (1.0 - smoothstep(max(focusNear - 3.0, 0.0), focusNear, z)); }
+        void main(){
+          float c0 = coc(vUv);
+          vec4 base = texture2D(tDiffuse, vUv);
+          if (c0 < 0.5) { gl_FragColor = base; return; }
+          vec3 acc = base.rgb; float wsum = 1.0;
+          const int N = 40;
+          for (int i = 0; i < N; i++) {
+            float r = sqrt((float(i) + 0.5) / float(N));
+            float a = float(i) * 2.39996323;
+            vec2 o = vec2(cos(a), sin(a)) * r * c0;
+            vec2 uv = vUv + o / res;
+            float cs = coc(uv);
+            float w = clamp(cs - r * c0 + 1.0, 0.0, 1.0);
+            acc += texture2D(tDiffuse, uv).rgb * w; wsum += w;
+          }
+          gl_FragColor = vec4(acc / wsum, base.a);
+        }`,
+    });
+    this.quad = new FullScreenQuad(this.material);
+  }
+  render(r, writeBuffer, readBuffer) {
+    this.material.uniforms.tDiffuse.value = readBuffer.texture;
+    this.material.uniforms.tDepth.value = readBuffer.depthTexture;
+    r.setRenderTarget(this.renderToScreen ? null : writeBuffer);
+    this.quad.render(r);
+  }
+}
+
+// ------------------------------------------------------------------ draw
+await buildSurfaceGuis();
+const rt = new THREE.WebGLRenderTarget(W, H, { type: THREE.HalfFloatType, samples: 4 });
+rt.depthTexture = new THREE.DepthTexture(W, H);
+rt.depthTexture.type = THREE.UnsignedIntType;
+const composer = new EffectComposer(renderer, rt);
+composer.setPixelRatio(1);
+composer.setSize(W, H);
+composer.addPass(new RenderPass(scene, camera));
+if (FX.DepthOfFieldEffect && (FX.DepthOfFieldEffect.FarIntensity > 0 || FX.DepthOfFieldEffect.NearIntensity > 0)) composer.addPass(new DofPass(FX.DepthOfFieldEffect));
+if (FX.BloomEffect && FX.BloomEffect.Intensity > 0) {
+  const b = FX.BloomEffect;
+  composer.addPass(new UnrealBloomPass(new THREE.Vector2(W, H), TUNE.bloomStrength * b.Intensity, clamp(TUNE.bloomRadius * b.Size, 0, 1), TUNE.bloomThreshold * b.Threshold));
+}
+composer.addPass(new OutputPass());
+composer.render();
+
+// 2D pass: Roblox BlurEffect + ColorCorrectionEffect act on the 3D view only (not on the GUI)
+{
+  const c2 = document.getElementById('c2d');
+  c2.width = W; c2.height = H;
+  const g = c2.getContext('2d');
+  const cc = FX.ColorCorrectionEffect;
+  const blur = FX.BlurEffect ? FX.BlurEffect.Size * TUNE.blurPx * SCALE : 0;
+  const f = [];
+  if (blur > 0.2) f.push(`blur(${blur.toFixed(2)}px)`);
+  if (cc) {
+    f.push(`brightness(${(1 + (cc.Brightness ?? 0)).toFixed(3)})`, `contrast(${(1 + (cc.Contrast ?? 0)).toFixed(3)})`, `saturate(${(1 + (cc.Saturation ?? 0)).toFixed(3)})`);
+    if (cc.TintColor && cc.TintColor.some(v => v < 0.999)) note('ColorCorrection TintColor approximated');
+  }
+  // clamp-to-edge margin so the blur does not darken the borders
+  const m = Math.ceil(blur * 3) + 1;
+  const big = document.createElement('canvas');
+  big.width = W + 2 * m; big.height = H + 2 * m;
+  const bg = big.getContext('2d');
+  bg.drawImage(canvas3d, m, m);
+  bg.drawImage(canvas3d, 0, 0, W, 1, m, 0, W, m); bg.drawImage(canvas3d, 0, H - 1, W, 1, m, H + m, W, m);
+  bg.drawImage(big, m, 0, 1, H + 2 * m, 0, 0, m, H + 2 * m); bg.drawImage(big, W + m - 1, 0, 1, H + 2 * m, W + m, 0, m, H + 2 * m);
+  g.filter = f.join(' ') || 'none';
+  g.drawImage(big, -m, -m);
+  if (cc?.TintColor && cc.TintColor.some(v => v < 0.999)) {
+    g.filter = 'none'; g.globalCompositeOperation = 'multiply'; g.fillStyle = css(cc.TintColor); g.fillRect(0, 0, W, H); g.globalCompositeOperation = 'source-over';
+  }
+  canvas3d.style.visibility = 'hidden';
+}
+
+// GUI
+const weights = new Set();
+(function collect(n) { if (n.p?.FontFace) weights.add(`${n.p.FontFace.style === 'Italic' ? 'italic' : 'normal'} ${n.p.FontFace.weight} 20px PreviewSans`); (n.k || []).forEach(collect); })({ k: D.gui.concat(D.surfaceGuis) });
+await Promise.all([...weights].map(w => document.fonts.load(w)));
+await document.fonts.ready;
+for (const sg of D.gui) {
+  if (sg.p.Enabled === false) continue;
+  const inset = sg.p.IgnoreGuiInset ? 0 : D.guiInset;
+  const rootBox = { x: 0, y: 0, w: W, h: H, k: 1 };
+  const layer = document.createElement('div');
+  layer.className = 'g';
+  Object.assign(layer.style, { left: '0px', top: '0px', width: W + 'px', height: H + 'px' });
+  guiRoot.appendChild(layer);
+  if (sg.p.ZIndexBehavior === 'Global') note('ZIndexBehavior.Global is drawn like Sibling');
+  for (const [c, b] of childBoxes(sg, { x: 0, y: inset, w: W, h: H - inset }, 1)) buildDom(c, b, layer, rootBox);
+}
+if (D.cursor) {
+  const cur = document.createElement('div');
+  cur.innerHTML = '<svg width="28" height="34" viewBox="0 0 28 34"><path d="M2 2 L2 28 L9 21 L14 32 L19 30 L14 19 L24 19 Z" fill="#fff" stroke="#000" stroke-width="2"/></svg>';
+  Object.assign(cur.style, { position: 'absolute', left: D.cursor[0] + 'px', top: D.cursor[1] + 'px' });
+  guiRoot.appendChild(cur);
+}
+if (D.errors.length) {
+  const e = document.createElement('div');
+  e.id = 'err';
+  e.textContent = 'Script error(s) in the preview run:\n' + D.errors.map(x => x.message).join('\n');
+  document.getElementById('stage').appendChild(e);
+}
+for (const u of D.unsupported) note(u);
+await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+window.INFO = { notes: [...notes], parts: D.parts.length };
+window.DONE = true;
+</script>
+</body>
+</html>

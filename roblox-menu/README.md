@@ -23,7 +23,34 @@
 
 ## Что есть
 - Фон: ночной стадион (трава Terrain, разметка, бусты, ворота, стеклянные стены, трибуны, табло, прожекторы), размыт как в игре.
-- Мяч с панелями (пятиугольники и шестиугольники), тестовая машинка.
-- Меню слева: PLAY, GARAGE, ITEM SHOP, ROCKET PASS, CAREER, EXTRAS, SETTINGS.
-- PLAY открывает экран режимов: CASUAL, COMPETITIVE, TOURNAMENTS, PRIVATE MATCH, OFFLINE.
-- Управление: мышь, стрелки/WASD, Enter, Backspace (назад), геймпад.
+- Главное меню слева: PLAY, GARAGE (листает машины), ITEM SHOP, ROCKET PASS, CAREER, EXTRAS, SETTINGS.
+- PLAY: карточки CASUAL, COMPETITIVE, ARCADE, TOURNAMENTS, PRIVATE MATCH, PLAY OFFLINE.
+- CASUAL / COMPETITIVE / ARCADE открывают экран плейлистов с вкладками (Q / E): у COMPETITIVE значки рангов,
+  MULTIPLE SELECTION (до 6 плейлистов), FIND MATCH с плашкой поиска. Hoops в рейтинге нет.
+- Управление: мышь, стрелки/WASD, Enter, Backspace (назад), Q/E (вкладки), F (поиск), M (несколько плейлистов), геймпад.
+
+## Что где менять
+Всё, что обычно хочется поменять, собрано в начале `MainMenu.client.lua` (там же шпаргалка). Ищите Ctrl+F:
+
+| Что | Где |
+|---|---|
+| пункты главного меню | `MENU` |
+| карточки экрана PLAY (название, подпись, цвет, какую вкладку открывают) | `MODES` |
+| вкладки и подпись под ними | `TAB_ORDER`, `TAB_INFO` |
+| плейлисты и ранги (`rank`, `tier`, `division`) | `PLAYLISTS` |
+| цвета значков рангов | `RANKS` |
+| цвета меню | `local C =` |
+| где стоит и куда смотрит машина | `CAR_X`, `CAR_Z`, `CAR_YAW` |
+| камера | `CAM_POS`, `CAM_LOOK` |
+
+## Как обновлять, не перекидывая модели
+Модели импортируются **один раз** и остаются в вашем месте (`ReplicatedStorage > MenuAssets`).
+При обновлении меню меняется только скрипт: откройте `StarterPlayer > StarterPlayerScripts > MainMenu`,
+Ctrl+A, вставьте новый код. Модели трогать не нужно.
+
+Чтобы получать полностью готовый файл: сохраните своё место как `.rbxlx`
+(File → Save to File As → тип файла `.rbxlx`) и пришлите его — новые версии будут приходить уже в вашем файле, с моделями.
+
+## Предпросмотр без Roblox
+`tools/preview/run.sh MainMenu.client.lua <папка>` запускает настоящий скрипт с имитацией Roblox и сохраняет картинки
+экранов (подробности в `tools/preview/README.md`).

@@ -81,14 +81,15 @@ local MENU = {
 	{ name = "SETTINGS" },
 }
 
--- Карточки экрана PLAY. tab = какую вкладку плейлистов открыть (без tab карточка только пишет в Output)
+-- Карточки экрана PLAY. tab = какую вкладку плейлистов открыть (без tab карточка только пишет в Output);
+-- title = как написать название на карточке (\n = перенос строки), если отличается от name
 local MODES = {
 	{ name = "CASUAL",        desc = "Unranked matches",     big = "3V3",  tab = "CASUAL",      c1 = Color3.fromRGB(20, 140, 255),  c2 = Color3.fromRGB(5, 40, 130) },
 	{ name = "COMPETITIVE",   desc = "Ranked playlists",     big = "RANK", tab = "COMPETITIVE", c1 = Color3.fromRGB(150, 80, 255),  c2 = Color3.fromRGB(40, 12, 110) },
 	{ name = "ARCADE",        desc = "Rotating extra modes", big = "MIX",  tab = "ARCADE",      c1 = Color3.fromRGB(255, 70, 140),  c2 = Color3.fromRGB(110, 10, 60) },
 	{ name = "TOURNAMENTS",   desc = "Compete for rewards",  big = "CUP",  c1 = Color3.fromRGB(255, 150, 30),  c2 = Color3.fromRGB(140, 45, 0), tag = "NEXT 18:00" },
-	{ name = "PRIVATE MATCH", desc = "Play with friends",    big = "VS",   c1 = Color3.fromRGB(0, 200, 175),   c2 = Color3.fromRGB(0, 70, 80) },
-	{ name = "PLAY OFFLINE",  desc = "Bots and workshop",    big = "BOT",  c1 = Color3.fromRGB(120, 130, 150), c2 = Color3.fromRGB(30, 35, 48) },
+	{ name = "PRIVATE MATCH", title = "PRIVATE\nMATCH", desc = "Play with friends", big = "VS",   c1 = Color3.fromRGB(0, 200, 175),   c2 = Color3.fromRGB(0, 70, 80) },
+	{ name = "PLAY OFFLINE",  title = "PLAY\nOFFLINE", desc = "Bots and workshop", big = "BOT",  c1 = Color3.fromRGB(120, 130, 150), c2 = Color3.fromRGB(30, 35, 48) },
 }
 
 -- Вкладки экрана плейлистов (переключаются кнопками Q / E) и их плейлисты.
@@ -945,7 +946,7 @@ do
 	crumb.Size = UDim2.new(1, 0, 0, 22)
 end
 
-local CARD_W, CARD_H, CARD_GAP = 230, 380, 20
+local CARD_W, CARD_H, CARD_GAP = 270, 380, 16
 local row = Instance.new("Frame")
 row.BackgroundTransparency = 1
 row.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1006,16 +1007,12 @@ for k, mode in ipairs(MODES) do
 	shade.Parent = face
 	gradient(shade, nil, 90, NumberSequence.new(1, 0.25))
 
-	local title = label(face, mode.name, F_HEAVY, 34, C.white)
-	title.TextWrapped = true
-	title.TextScaled = true -- длинные слова (COMPETITIVE) уменьшаются, чтобы влезть
-	local maxSize = Instance.new("UITextSizeConstraint")
-	maxSize.MaxTextSize = 34
-	maxSize.Parent = title
+	-- 28 px: самое длинное слово (COMPETITIVE, TOURNAMENTS) целиком влезает в ширину карточки
+	local title = label(face, mode.title or mode.name, F_HEAVY, 28, C.white)
 	title.TextYAlignment = Enum.TextYAlignment.Bottom
 	title.AnchorPoint = Vector2.new(0, 1)
-	title.Position = UDim2.new(0, 20, 1, -46)
-	title.Size = UDim2.new(1, -36, 0, 84)
+	title.Position = UDim2.new(0, 18, 1, -46)
+	title.Size = UDim2.new(1, -30, 0, 84)
 
 	local desc = label(face, mode.desc, F_BODY, 17, Color3.fromRGB(220, 230, 245))
 	desc.AnchorPoint = Vector2.new(0, 1)
