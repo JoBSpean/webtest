@@ -34,13 +34,22 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 if not game:IsLoaded() then game.Loaded:Wait() end
 
--- СВОИ МОДЕЛИ: положите в ReplicatedStorage > MenuAssets модели с такими именами:
---   Car   - машинка (подгоняется под длину 8.4 стада)
+-- СВОИ МОДЕЛИ: положите в ReplicatedStorage > MenuAssets модели, имя которых начинается с:
+--   Car   - машинка (подгоняется под длину 8.4 стада), например Car или Car_Dominus
 --   Ball  - мяч (подгоняется под диаметр 9)
---   Arena - стадион (заменяет встроенный, подгоняется под длину 200; атрибут Length меняет её)
+--   Arena - купол арены: стены, пандусы, ворота (подгоняется под длину 203.75; атрибут Length меняет её)
+-- Готовые модели лежат в папке models/ рядом со скриптом (Car.glb, Ball.glb, Arena.glb).
 -- Если модель стоит боком, добавьте ей атрибут Yaw (число, градусы поворота).
 local ASSETS = ReplicatedStorage:FindFirstChild("MenuAssets")
-local function asset(name) return ASSETS and ASSETS:FindFirstChild(name) end
+local function asset(name)
+	if not ASSETS then return nil end
+	local exact = ASSETS:FindFirstChild(name)
+	if exact then return exact end
+	for _, child in ipairs(ASSETS:GetChildren()) do
+		if child.Name:sub(1, #name) == name then return child end
+	end
+	return nil
+end
 pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false) end)
 
 ------------------------------------------------------------------
@@ -201,9 +210,10 @@ local function standOn(m, ground, yawDeg)
 	m:PivotTo(m:GetPivot() + (ground - (bb.Position - Vector3.new(0, size.Y / 2, 0))))
 end
 
-local FW, FL, WH = 140, 180, 34 -- ширина поля, длина, высота стен
+-- размеры поля и ворот совпадают с моделью Arena.glb
+local FW, FL, WH = 140, 174, 34 -- ширина поля, длина, высота стен
 local HW, HL = FW / 2, FL / 2
-local GOAL_W, GOAL_H, GOAL_D = 36, 13, 12
+local GOAL_W, GOAL_H, GOAL_D = 30.7, 11.2, 14.8
 local GLASS = Color3.fromRGB(140, 170, 210)
 local RAMP  = Color3.fromRGB(26, 34, 48)
 local FRAME = Color3.fromRGB(45, 52, 66)
@@ -218,7 +228,8 @@ pcall(function() oldGrassLength = terrain.GrassLength end)
 local usedTerrain = false
 local orbs, ribbon = {}, {}
 
-local function buildStadium()
+-- withShell = false: стены и сетки ворот не строим, их даёт модель Arena
+local function buildStadium(withShell)
 	-- газон: Terrain-трава с короткими травинками, как газон в Rocket League.
 	-- Если укоротить травинки нельзя, а они включены (Terrain > Decoration),
 	-- кладём обычный газон без травинок, чтобы трава не закрывала камеру.
@@ -270,15 +281,17 @@ local function buildStadium()
 	end
 
 	-- боковые стены: стекло, закруглённый «пандус», неоновая окантовка
-	for _, s in ipairs({ -1, 1 }) do
-		part(Vector3.new(0.6, WH, FL), at(s * (HW + 0.3), WH / 2, 0), GLASS, Enum.Material.Glass, 0.8)
-		part(Vector3.new(0.8, 8, FL), at(s * (HW - 2.83), 2.83, 0, 0, 0, -45 * s), RAMP)
-		for _, h in ipairs({ { HL / 2, C.blue }, { -HL / 2, C.orange } }) do
-			part(Vector3.new(0.5, 0.5, HL), at(s * HW, WH, h[1]), h[2], Enum.Material.Neon)
-			part(Vector3.new(0.4, 0.4, HL), at(s * HW, 5.8, h[1]), h[2], Enum.Material.Neon, 0.2)
-		end
-		for z = -HL, HL, 15 do
-			part(Vector3.new(0.5, WH, 0.5), at(s * (HW + 0.3), WH / 2, z), FRAME, Enum.Material.Metal)
+	if withShell then
+		for _, s in ipairs({ -1, 1 }) do
+			part(Vector3.new(0.6, WH, FL), at(s * (HW + 0.3), WH / 2, 0), GLASS, Enum.Material.Glass, 0.8)
+			part(Vector3.new(0.8, 8, FL), at(s * (HW - 2.83), 2.83, 0, 0, 0, -45 * s), RAMP)
+			for _, h in ipairs({ { HL / 2, C.blue }, { -HL / 2, C.orange } }) do
+				part(Vector3.new(0.5, 0.5, HL), at(s * HW, WH, h[1]), h[2], Enum.Material.Neon)
+				part(Vector3.new(0.4, 0.4, HL), at(s * HW, 5.8, h[1]), h[2], Enum.Material.Neon, 0.2)
+			end
+			for z = -HL, HL, 15 do
+				part(Vector3.new(0.5, WH, 0.5), at(s * (HW + 0.3), WH / 2, z), FRAME, Enum.Material.Metal)
+			end
 		end
 	end
 
@@ -286,24 +299,26 @@ local function buildStadium()
 	local function endWall(s, team)
 		local z = s * (HL + 0.3)
 		local sideW = HW - GOAL_W / 2
-		for _, sx in ipairs({ -1, 1 }) do
-			local cx = sx * (GOAL_W / 2 + sideW / 2)
-			part(Vector3.new(sideW, WH, 0.6), at(cx, WH / 2, z), GLASS, Enum.Material.Glass, 0.8)
-			part(Vector3.new(sideW, 8, 0.8), at(cx, 2.83, s * (HL - 2.83), 45 * s, 0, 0), RAMP)
+		local gz = s * (HL + GOAL_D / 2)
+		if withShell then
+			for _, sx in ipairs({ -1, 1 }) do
+				local cx = sx * (GOAL_W / 2 + sideW / 2)
+				part(Vector3.new(sideW, WH, 0.6), at(cx, WH / 2, z), GLASS, Enum.Material.Glass, 0.8)
+				part(Vector3.new(sideW, 8, 0.8), at(cx, 2.83, s * (HL - 2.83), 45 * s, 0, 0), RAMP)
+			end
+			part(Vector3.new(GOAL_W, WH - GOAL_H, 0.6), at(0, GOAL_H + (WH - GOAL_H) / 2, z), GLASS, Enum.Material.Glass, 0.8)
+			part(Vector3.new(FW, 0.5, 0.5), at(0, WH, s * HL), team, Enum.Material.Neon)
+			-- сетка
+			part(Vector3.new(GOAL_W, GOAL_H, 0.2), at(0, GOAL_H / 2, s * (HL + GOAL_D)), team, Enum.Material.ForceField, 0.1)
+			part(Vector3.new(0.2, GOAL_H, GOAL_D), at(-GOAL_W / 2, GOAL_H / 2, gz), team, Enum.Material.ForceField, 0.1)
+			part(Vector3.new(0.2, GOAL_H, GOAL_D), at(GOAL_W / 2, GOAL_H / 2, gz), team, Enum.Material.ForceField, 0.1)
+			part(Vector3.new(GOAL_W, 0.2, GOAL_D), at(0, GOAL_H, gz), team, Enum.Material.ForceField, 0.1)
+			part(Vector3.new(GOAL_W, 1, GOAL_D), at(0, -0.45, gz), Color3.fromRGB(30, 30, 36))
 		end
-		part(Vector3.new(GOAL_W, WH - GOAL_H, 0.6), at(0, GOAL_H + (WH - GOAL_H) / 2, z), GLASS, Enum.Material.Glass, 0.8)
-		part(Vector3.new(FW, 0.5, 0.5), at(0, WH, s * HL), team, Enum.Material.Neon)
 		-- рамка ворот
 		part(Vector3.new(1, GOAL_H, 1), at(-GOAL_W / 2 - 0.5, GOAL_H / 2, s * HL), team, Enum.Material.Neon)
 		part(Vector3.new(1, GOAL_H, 1), at(GOAL_W / 2 + 0.5, GOAL_H / 2, s * HL), team, Enum.Material.Neon)
 		part(Vector3.new(GOAL_W + 2, 1, 1), at(0, GOAL_H + 0.5, s * HL), team, Enum.Material.Neon)
-		-- сетка
-		local gz = s * (HL + GOAL_D / 2)
-		part(Vector3.new(GOAL_W, GOAL_H, 0.2), at(0, GOAL_H / 2, s * (HL + GOAL_D)), team, Enum.Material.ForceField, 0.1)
-		part(Vector3.new(0.2, GOAL_H, GOAL_D), at(-GOAL_W / 2, GOAL_H / 2, gz), team, Enum.Material.ForceField, 0.1)
-		part(Vector3.new(0.2, GOAL_H, GOAL_D), at(GOAL_W / 2, GOAL_H / 2, gz), team, Enum.Material.ForceField, 0.1)
-		part(Vector3.new(GOAL_W, 0.2, GOAL_D), at(0, GOAL_H, gz), team, Enum.Material.ForceField, 0.1)
-		part(Vector3.new(GOAL_W, 1, GOAL_D), at(0, -0.45, gz), Color3.fromRGB(30, 30, 36))
 		local glow = part(Vector3.new(1, 1, 1), at(0, GOAL_H / 2, gz), team, nil, 1)
 		local pl = Instance.new("PointLight")
 		pl.Color, pl.Range, pl.Brightness = team, 18, 2
@@ -312,9 +327,11 @@ local function buildStadium()
 	end
 	endWall(-1, C.orange)
 	endWall(1, C.blue)
-	for _, sx in ipairs({ -1, 1 }) do
-		for _, sz in ipairs({ -1, 1 }) do
-			part(Vector3.new(1.5, WH, 1.5), at(sx * HW, WH / 2, sz * HL), FRAME, Enum.Material.Metal)
+	if withShell then
+		for _, sx in ipairs({ -1, 1 }) do
+			for _, sz in ipairs({ -1, 1 }) do
+				part(Vector3.new(1.5, WH, 1.5), at(sx * HW, WH / 2, sz * HL), FRAME, Enum.Material.Metal)
+			end
 		end
 	end
 
@@ -426,10 +443,20 @@ local function buildStadium()
 end
 
 local customArena = asset("Arena")
+buildStadium(customArena == nil)
 if customArena then
-	standOn(fitModel(customArena, customArena:GetAttribute("Length") or 200, true), ORIGIN, 0)
-else
-	buildStadium()
+	local arena = fitModel(customArena, customArena:GetAttribute("Length") or 203.75, true)
+	standOn(arena, ORIGIN, 0)
+	-- импорт в Roblox теряет прозрачность материалов: стекло купола делаем прозрачным сами
+	for _, p in ipairs(arena:GetDescendants()) do
+		if p:IsA("BasePart") then
+			local n = p.Name:lower()
+			if n:find("wall") or n:find("roof") or n:find("glass") then
+				p.Transparency = math.max(p.Transparency, 0.86)
+				p.CastShadow = false
+			end
+		end
+	end
 end
 
 -- мяч: 12 тёмных пятиугольных и 20 серых шестиугольных панелей
