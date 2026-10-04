@@ -28,6 +28,12 @@
 - CASUAL / COMPETITIVE / ARCADE открывают экран плейлистов с вкладками (Q / E): у COMPETITIVE значки рангов,
   MULTIPLE SELECTION (до 6 плейлистов), FIND MATCH с плашкой поиска. Hoops в рейтинге нет.
 - Управление: мышь, стрелки/WASD, Enter, Backspace (назад), Q/E (вкладки), F (поиск), M (несколько плейлистов), геймпад.
+- **SETTINGS > CONTROLS**: газ (THROTTLE), задний ход (REVERSE), руль (STEER LEFT / RIGHT) для клавиатуры и геймпада.
+  Щёлкните по кнопке и нажмите новую клавишу; RESET TO DEFAULTS возвращает W/S/A/D и RT/LT/левый стик.
+  Остальные вкладки (GAMEPLAY, CAMERA, VIDEO, AUDIO) пока пустые.
+- **FREE PLAY** (PLAY > PLAY OFFLINE): езда по полю, мяч можно толкать и забить в ворота.
+  Скорость и радиус поворота как у машины Rocket League без буста. R / крестовина вверх — на центр,
+  P / Backspace / B — пауза (RESUME, RESET, EXIT TO MAIN MENU). Прыжков, буста и полётов пока нет.
 
 ## Что где менять
 Всё, что обычно хочется поменять, собрано в начале `MainMenu.client.lua` (там же шпаргалка). Ищите Ctrl+F:
@@ -42,6 +48,8 @@
 | цвета меню | `local C =` |
 | где стоит и куда смотрит машина | `CAR_X`, `CAR_Z`, `CAR_YAW` |
 | камера | `CAM_POS`, `CAM_LOOK` |
+| управление по умолчанию | `DEFAULT_BINDINGS` |
+| Free Play: размер машины и мяча, камера | `FREEPLAY` |
 
 ## Как обновлять, не перекидывая модели
 Модели импортируются **один раз** и остаются в вашем месте (`ReplicatedStorage > MenuAssets`).

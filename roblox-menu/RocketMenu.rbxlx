@@ -19,7 +19,10 @@
 	- По центру тестовая машинка (потом сюда ставится машина игрока).
 	- Слева меню: большая кнопка PLAY и GARAGE, ITEM SHOP, ROCKET PASS, CAREER, EXTRAS, SETTINGS.
 	- PLAY открывает экран режимов: CASUAL, COMPETITIVE, TOURNAMENTS, PRIVATE MATCH, OFFLINE.
-	- Управление: мышь, стрелки/WASD, Enter, Backspace (назад), геймпад.
+	- SETTINGS > CONTROLS: газ, задний ход, руль для клавиатуры и геймпада (можно переназначить).
+	- PLAY > PLAY OFFLINE: Free Play — езда по полю и мяч (без прыжков, буста и полётов).
+	  Клавиатура W/S/A/D, геймпад RT/LT/левый стик; R — машина и мяч на центр, P (геймпад B) — пауза.
+	- Управление меню: мышь, стрелки/WASD, Enter, Backspace (назад), Q/E (вкладки), геймпад.
 	- Закрыть меню из другого скрипта: _G.CloseMainMenu()
 ]]
 
@@ -31,6 +34,8 @@
 	  TAB_INFO    серая подпись под вкладками
 	  PLAYLISTS   плейлисты каждой вкладки; у COMPETITIVE ранг: rank, tier (I-III), division (I-IV)
 	  RANKS       цвета значков рангов
+	  DEFAULT_BINDINGS  управление по умолчанию (клавиатура и геймпад), меняется и в SETTINGS > CONTROLS
+	  FREEPLAY    Free Play: размер машины и мяча, камера
 	  local C =   все цвета меню (кнопки, выделение, синий PLAY)
 	  CAR_YAW     куда смотрит машина (градусы); CAR_X, CAR_Z — где она стоит
 	  CAM_POS     откуда смотрит камера; CAM_LOOK — куда
@@ -82,14 +87,15 @@ local MENU = {
 }
 
 -- Карточки экрана PLAY. tab = какую вкладку плейлистов открыть (без tab карточка только пишет в Output);
--- title = как написать название на карточке (\n = перенос строки), если отличается от name
+-- title = как написать название на карточке (\n = перенос строки), если отличается от name;
+-- action = "freeplay" запускает Free Play
 local MODES = {
 	{ name = "CASUAL",        desc = "Unranked matches",     big = "3V3",  tab = "CASUAL",      c1 = Color3.fromRGB(20, 140, 255),  c2 = Color3.fromRGB(5, 40, 130) },
 	{ name = "COMPETITIVE",   desc = "Ranked playlists",     big = "RANK", tab = "COMPETITIVE", c1 = Color3.fromRGB(150, 80, 255),  c2 = Color3.fromRGB(40, 12, 110) },
 	{ name = "ARCADE",        desc = "Rotating extra modes", big = "MIX",  tab = "ARCADE",      c1 = Color3.fromRGB(255, 70, 140),  c2 = Color3.fromRGB(110, 10, 60) },
 	{ name = "TOURNAMENTS",   desc = "Compete for rewards",  big = "CUP",  c1 = Color3.fromRGB(255, 150, 30),  c2 = Color3.fromRGB(140, 45, 0), tag = "NEXT 18:00" },
 	{ name = "PRIVATE MATCH", title = "PRIVATE\nMATCH", desc = "Play with friends", big = "VS",   c1 = Color3.fromRGB(0, 200, 175),   c2 = Color3.fromRGB(0, 70, 80) },
-	{ name = "PLAY OFFLINE",  title = "PLAY\nOFFLINE", desc = "Bots and workshop", big = "BOT",  c1 = Color3.fromRGB(120, 130, 150), c2 = Color3.fromRGB(30, 35, 48) },
+	{ name = "PLAY OFFLINE",  title = "PLAY\nOFFLINE", desc = "Free Play", big = "BOT", action = "freeplay",  c1 = Color3.fromRGB(120, 130, 150), c2 = Color3.fromRGB(30, 35, 48) },
 }
 
 -- Вкладки экрана плейлистов (переключаются кнопками Q / E) и их плейлисты.
@@ -120,6 +126,24 @@ local PLAYLISTS = {
 		{ name = "DROPSHOT",   size = "3V3", info = "Rotating mode" },
 	},
 }
+-- Управление по умолчанию (меняется в игре: SETTINGS > CONTROLS).
+-- key = клавиатура, pad = геймпад. Руль на геймпаде всегда левый стик (и крестовина).
+local DEFAULT_BINDINGS = {
+	{ id = "throttle", name = "THROTTLE",    key = Enum.KeyCode.W, pad = Enum.KeyCode.ButtonR2 },
+	{ id = "reverse",  name = "REVERSE",     key = Enum.KeyCode.S, pad = Enum.KeyCode.ButtonL2 },
+	{ id = "left",     name = "STEER LEFT",  key = Enum.KeyCode.A, pad = "LEFT STICK" },
+	{ id = "right",    name = "STEER RIGHT", key = Enum.KeyCode.D, pad = "LEFT STICK" },
+}
+
+-- Free Play (PLAY > PLAY OFFLINE). Скорость и повороты как у машины в Rocket League без буста.
+local FREEPLAY = {
+	carLength = 3.6,   -- длина машины в Free Play (в меню она 8.4), так поле по размеру как в Rocket League
+	ballSize  = 5.6,   -- диаметр мяча
+	camDistance = 8.5, -- камера: расстояние позади машины
+	camHeight = 3.2,   -- камера: высота
+	camFov = 75,       -- камера: угол обзора
+}
+
 -- цвета значков рангов (верх -> низ)
 local RANKS = {
 	UNRANKED            = { Color3.fromRGB(150, 155, 165), Color3.fromRGB(60, 65, 75) },
@@ -196,7 +220,7 @@ effect("Sky", { StarCount = 1500, CelestialBodiesShown = false })
 effect("Atmosphere", { Density = 0.28, Offset = 0.1, Color = Color3.fromRGB(60, 78, 120), Decay = Color3.fromRGB(25, 30, 60), Glare = 0, Haze = 1.2 })
 effect("BloomEffect", { Intensity = 0.9, Size = 28, Threshold = 1.4 })
 effect("ColorCorrectionEffect", { Contrast = 0.12, Saturation = 0.12, Brightness = 0.02 })
-effect("DepthOfFieldEffect", { FarIntensity = 0.35, FocusDistance = 18.6, InFocusRadius = 9, NearIntensity = 0 })
+local dof = effect("DepthOfFieldEffect", { FarIntensity = 0.35, FocusDistance = 18.6, InFocusRadius = 9, NearIntensity = 0 })
 local menuBlur = effect("BlurEffect", { Size = 0 })
 
 ------------------------------------------------------------------
@@ -623,6 +647,8 @@ local function setCar(model)
 		car = Instance.new("Model")
 		car.Parent = scene
 		buildTestCar()
+		local bb, size = car:GetBoundingBox()
+		car.WorldPivot = CFrame.new(bb.Position.X, ORIGIN.Y, bb.Position.Z) * CFrame.Angles(0, math.rad(CAR_YAW), 0)
 	end
 	car.Name = "ShowcaseCar"
 end
@@ -666,16 +692,18 @@ local savedFov = workspace.CurrentCamera.FieldOfView
 local CAM_POS  = ORIGIN + Vector3.new(-3, 4.2, 58)
 local CAM_LOOK = ORIGIN + Vector3.new(-6.5, 3.6, 40)
 local t0 = os.clock()
+local driving = false -- идёт Free Play: камерой и мячом управляет езда
 table.insert(conns, RunService.RenderStepped:Connect(function()
 	local cam = workspace.CurrentCamera
 	if cam.CameraType ~= Enum.CameraType.Scriptable then cam.CameraType = Enum.CameraType.Scriptable end
-	cam.FieldOfView = 40
 	local t = os.clock() - t0
-	local sway = Vector3.new(math.sin(t * 0.25) * 0.6, math.sin(t * 0.4) * 0.15, math.cos(t * 0.2) * 0.3)
-	cam.CFrame = CFrame.lookAt(CAM_POS + sway, CAM_LOOK)
 	for _, o in ipairs(orbs) do
 		o.part.CFrame = o.base * CFrame.new(0, math.sin(t * 2 + o.phase) * 0.25, 0) * CFrame.Angles(0, t, 0)
 	end
+	if driving then return end
+	cam.FieldOfView = 40
+	local sway = Vector3.new(math.sin(t * 0.25) * 0.6, math.sin(t * 0.4) * 0.15, math.cos(t * 0.2) * 0.3)
+	cam.CFrame = CFrame.lookAt(CAM_POS + sway, CAM_LOOK)
 	ball:PivotTo(ballBase * CFrame.Angles(0, t * 0.15, 0))
 end))
 
@@ -780,6 +808,7 @@ local mainSel = 0
 local inPlay = false   -- открыт экран PLAY или плейлисты (кнопки главного меню спрятаны)
 local screen = "main" -- "main" | "play" | "list"
 local openPlay -- объявлена ниже
+local openSettings, startFreeplay -- экран настроек и Free Play, объявлены ниже
 
 local y = 0
 for i, item in ipairs(MENU) do
@@ -888,6 +917,8 @@ local function activateMain(i)
 	selectMain(i)
 	if MENU[i].play then
 		openPlay()
+	elseif MENU[i].name == "SETTINGS" then
+		openSettings()
 	elseif MENU[i].name == "GARAGE" and #carList > 1 then
 		-- GARAGE листает машины из MenuAssets
 		carIndex = carIndex % #carList + 1
@@ -1061,6 +1092,8 @@ local function activateCard(k)
 	selectCard(k)
 	if MODES[k].tab then
 		openList(MODES[k].tab)
+	elseif MODES[k].action == "freeplay" then
+		startFreeplay()
 	else
 		print("[Menu] PLAY > " .. MODES[k].name)
 	end
@@ -1556,6 +1589,793 @@ local function closeList()
 end
 listBack.Activated:Connect(closeList)
 
+-- Настройки и Free Play собраны в отдельной функции: у функции в Luau не больше 200 локальных переменных
+local extra = {}
+local function buildSettingsAndFreeplay()
+	local K = Enum.KeyCode
+	local function isKey(code, ...)
+		for _, v in ipairs({ ... }) do if code == v then return true end end
+		return false
+	end
+
+	------------------------------------------------------------------
+	-- НАСТРОЙКИ: вкладки GAMEPLAY / CAMERA / CONTROLS / VIDEO / AUDIO (пока работает CONTROLS)
+	------------------------------------------------------------------
+	-- текущее управление (копия DEFAULT_BINDINGS, меняется во вкладке CONTROLS; живёт до выхода из игры)
+	local bindings = {}
+	local function resetBindings()
+		for _, b in ipairs(DEFAULT_BINDINGS) do bindings[b.id] = { key = b.key, pad = b.pad } end
+	end
+	resetBindings()
+
+	local PAD_NAMES = {
+		ButtonR2 = "RT", ButtonL2 = "LT", ButtonR1 = "RB", ButtonL1 = "LB", ButtonA = "A", ButtonX = "X",
+		ButtonY = "Y", ButtonB = "B", ButtonR3 = "RS CLICK", ButtonL3 = "LS CLICK",
+		DPadUp = "D-PAD UP", DPadDown = "D-PAD DOWN", DPadLeft = "D-PAD LEFT", DPadRight = "D-PAD RIGHT",
+	}
+	local KEY_NAMES = {
+		Up = "UP", Down = "DOWN", Left = "LEFT", Right = "RIGHT", Space = "SPACE",
+		LeftShift = "L-SHIFT", RightShift = "R-SHIFT", LeftControl = "L-CTRL", RightControl = "R-CTRL",
+		LeftAlt = "L-ALT", RightAlt = "R-ALT", Return = "ENTER", Tab = "TAB", CapsLock = "CAPS",
+	}
+	local function bindName(code)
+		if typeof(code) ~= "EnumItem" then return tostring(code) end
+		return PAD_NAMES[code.Name] or KEY_NAMES[code.Name] or string.upper(code.Name)
+	end
+	-- эти кнопки заняты Free Play и меню, на них езду не назначить
+	local RESERVED = {
+		[Enum.KeyCode.Backspace] = true, [Enum.KeyCode.Escape] = true, [Enum.KeyCode.P] = true, [Enum.KeyCode.R] = true,
+		[Enum.KeyCode.ButtonB] = true, [Enum.KeyCode.DPadUp] = true, [Enum.KeyCode.ButtonStart] = true,
+		[Enum.KeyCode.ButtonSelect] = true, [Enum.KeyCode.Thumbstick1] = true, [Enum.KeyCode.Thumbstick2] = true,
+	}
+
+	local settingsScreen = Instance.new("CanvasGroup")
+	settingsScreen.Name = "SettingsScreen"
+	settingsScreen.BackgroundColor3 = C.navy
+	settingsScreen.BackgroundTransparency = 0.35
+	settingsScreen.BorderSizePixel = 0
+	settingsScreen.Size = UDim2.fromScale(1, 1)
+	settingsScreen.GroupTransparency = 1
+	settingsScreen.Visible = false
+	settingsScreen.Parent = gui
+
+	local SET_W, SET_TAB_W = 1100, 190
+	local setCol = Instance.new("Frame")
+	setCol.BackgroundTransparency = 1
+	setCol.Position = UDim2.fromOffset(64, 56)
+	setCol.Size = UDim2.fromOffset(SET_W, 820)
+	setCol.Parent = settingsScreen
+	addScale(setCol)
+
+	local setTitle = label(setCol, "SETTINGS", F_HEAVY, 84, C.white)
+	setTitle.Size = UDim2.new(1, 0, 0, 90)
+
+	local SET_TABS = { "GAMEPLAY", "CAMERA", "CONTROLS", "VIDEO", "AUDIO" }
+	local setTabBar = Instance.new("Frame")
+	setTabBar.BackgroundTransparency = 1
+	setTabBar.Position = UDim2.fromOffset(0, 104)
+	setTabBar.Size = UDim2.new(1, 0, 0, 56)
+	setTabBar.Parent = setCol
+	keyHint(setTabBar, "Q", 0)
+	local setTabs = {}
+	for i, name in ipairs(SET_TABS) do
+		local t = Instance.new("TextButton")
+		t.Text = ""
+		t.AutoButtonColor = false
+		t.BorderSizePixel = 0
+		t.BackgroundColor3 = C.white
+		t.BackgroundTransparency = 1
+		t.Position = UDim2.fromOffset(44 + (i - 1) * (SET_TAB_W + 6), 0)
+		t.Size = UDim2.fromOffset(SET_TAB_W, 56)
+		t.Parent = setTabBar
+		local l = label(t, name, F_HEAVY, 24, C.white)
+		l.Size = UDim2.fromScale(1, 1)
+		l.TextXAlignment = Enum.TextXAlignment.Center
+		local line = Instance.new("Frame")
+		line.BorderSizePixel = 0
+		line.BackgroundColor3 = C.accent
+		line.BackgroundTransparency = 1
+		line.AnchorPoint = Vector2.new(0, 1)
+		line.Position = UDim2.fromScale(0, 1)
+		line.Size = UDim2.new(1, 0, 0, 5)
+		line.Parent = t
+		setTabs[i] = { btn = t, label = l, line = line, name = name }
+	end
+	keyHint(setTabBar, "E", 44 + #SET_TABS * (SET_TAB_W + 6) + 4)
+
+	-- вкладка CONTROLS: таблица ДЕЙСТВИЕ | КЛАВИАТУРА | ГЕЙМПАД
+	local controlsPage = Instance.new("Frame")
+	controlsPage.BackgroundTransparency = 1
+	controlsPage.Position = UDim2.fromOffset(0, 184)
+	controlsPage.Size = UDim2.new(1, 0, 0, 620)
+	controlsPage.Parent = setCol
+
+	local COL_X = { key = 500, pad = 790 }
+	local CELL_W, CTRL_ROW_H = 270, 76
+	local headAction = label(controlsPage, "DRIVING", F_BOLD, 18, GREY)
+	headAction.Position = UDim2.fromOffset(26, 0)
+	headAction.Size = UDim2.fromOffset(300, 24)
+	for col, x in pairs(COL_X) do
+		local h = label(controlsPage, col == "key" and "KEYBOARD" or "CONTROLLER", F_BOLD, 18, GREY)
+		h.Position = UDim2.fromOffset(x, 0)
+		h.Size = UDim2.fromOffset(CELL_W, 24)
+		h.TextXAlignment = Enum.TextXAlignment.Center
+	end
+
+	local ctrlRows = {}       -- ctrlRows[i] = { id, cells = { key = {...}, pad = {...} } }
+	local ctrlFocus = { row = 1, col = "key" }
+	local waitingBind = nil   -- { id, col, at } пока ждём новую клавишу
+
+	local function cellLocked(id, col) return typeof(bindings[id][col]) ~= "EnumItem" end
+
+	local function refreshControls()
+		for _, r in ipairs(ctrlRows) do
+			for col, cell in pairs(r.cells) do
+				local waitingHere = waitingBind and waitingBind.id == r.id and waitingBind.col == col
+				local focused = ctrlFocus.row == r.index and ctrlFocus.col == col
+				local locked = cellLocked(r.id, col)
+				cell.label.Text = waitingHere and (col == "key" and "PRESS A KEY" or "PRESS A BUTTON") or bindName(bindings[r.id][col])
+				local on = focused and not locked
+				cell.btn.BackgroundColor3 = waitingHere and C.accent or (on and C.selBg or C.navy)
+				cell.btn.BackgroundTransparency = (waitingHere or on) and 0 or 0.25
+				cell.label.TextColor3 = waitingHere and C.white or (on and C.selText or (locked and GREY or C.white))
+				cell.stroke.Transparency = (waitingHere or on) and 0.1 or 0.75
+			end
+		end
+	end
+
+	local function startRebind(id, col)
+		if cellLocked(id, col) then return end
+		if waitingBind and waitingBind.id == id and waitingBind.col == col then
+			waitingBind = nil -- второй щелчок по той же ячейке отменяет
+		else
+			waitingBind = { id = id, col = col, at = os.clock() }
+		end
+		refreshControls()
+	end
+
+	-- новая клавиша: если она уже у другого действия, они меняются местами
+	local function finishRebind(code)
+		local w = waitingBind
+		waitingBind = nil
+		if w and code then
+			local old = bindings[w.id][w.col]
+			for otherId, b in pairs(bindings) do
+				if otherId ~= w.id and b[w.col] == code then b[w.col] = old end
+			end
+			bindings[w.id][w.col] = code
+			print("[Menu] CONTROLS: " .. w.id .. " (" .. w.col .. ") = " .. bindName(code))
+		end
+		refreshControls()
+	end
+
+	for i, def in ipairs(DEFAULT_BINDINGS) do
+		local y = 36 + (i - 1) * (CTRL_ROW_H + 10)
+		local plate = Instance.new("Frame")
+		plate.BorderSizePixel = 0
+		plate.BackgroundColor3 = C.btnBg
+		plate.BackgroundTransparency = 0.3
+		plate.Position = UDim2.fromOffset(0, y)
+		plate.Size = UDim2.fromOffset(SET_W - 20, CTRL_ROW_H)
+		plate.Parent = controlsPage
+		stroke(plate, 0.85, 1.5)
+		local name = label(plate, def.name, F_HEAVY, 30, C.white)
+		name.Position = UDim2.fromOffset(26, 0)
+		name.Size = UDim2.new(0, 440, 1, 0)
+		local r = { id = def.id, index = i, cells = {} }
+		for col, x in pairs(COL_X) do
+			local btn = Instance.new("TextButton")
+			btn.Text = ""
+			btn.AutoButtonColor = false
+			btn.BorderSizePixel = 0
+			btn.BackgroundColor3 = C.navy
+			btn.BackgroundTransparency = 0.25
+			btn.AnchorPoint = Vector2.new(0, 0.5)
+			btn.Position = UDim2.new(0, x, 0.5, 0)
+			btn.Size = UDim2.fromOffset(CELL_W, 52)
+			btn.Parent = plate
+			local l = label(btn, "", F_HEAVY, 22, C.white)
+			l.Size = UDim2.fromScale(1, 1)
+			l.TextXAlignment = Enum.TextXAlignment.Center
+			local cell = { btn = btn, label = l, stroke = stroke(btn, 0.75, 1.5) }
+			r.cells[col] = cell
+			btn.MouseEnter:Connect(function()
+				if screen ~= "settings" or waitingBind then return end
+				ctrlFocus.row, ctrlFocus.col = i, col
+				refreshControls()
+			end)
+			btn.Activated:Connect(function()
+				if screen ~= "settings" then return end
+				ctrlFocus.row, ctrlFocus.col = i, col
+				startRebind(def.id, col)
+			end)
+		end
+		ctrlRows[i] = r
+	end
+
+	refreshControls()
+
+	local ctrlNote = label(controlsPage,
+		"Click a binding, then press the new key or button. Controller steering always uses the left stick (D-pad works too).",
+		F_BODY, 17, GREY)
+	ctrlNote.Position = UDim2.fromOffset(4, 36 + #DEFAULT_BINDINGS * (CTRL_ROW_H + 10) + 8)
+	ctrlNote.Size = UDim2.new(1, -20, 0, 48)
+	ctrlNote.TextWrapped = true
+	ctrlNote.TextYAlignment = Enum.TextYAlignment.Top
+
+	-- другие вкладки пока пустые
+	local soonPage = Instance.new("Frame")
+	soonPage.BackgroundTransparency = 1
+	soonPage.Position = UDim2.fromOffset(0, 184)
+	soonPage.Size = UDim2.new(1, 0, 0, 200)
+	soonPage.Visible = false
+	soonPage.Parent = setCol
+	local soonTitle = label(soonPage, "COMING SOON", F_HEAVY, 40, C.white)
+	soonTitle.Size = UDim2.new(1, 0, 0, 50)
+	local soonText = label(soonPage, "These settings will be added later. Driving controls are in the CONTROLS tab.", F_BODY, 18, GREY)
+	soonText.Position = UDim2.fromOffset(2, 56)
+	soonText.Size = UDim2.new(1, 0, 0, 24)
+
+	local setLeftBar = Instance.new("Frame")
+	setLeftBar.BackgroundTransparency = 1
+	setLeftBar.AnchorPoint = Vector2.new(0, 1)
+	setLeftBar.Position = UDim2.new(0, 64, 1, -56)
+	setLeftBar.Size = UDim2.fromOffset(556, 52)
+	setLeftBar.Parent = settingsScreen
+	addScale(setLeftBar)
+	local setBack = smallButton(setLeftBar, "‹  BACK", 0, 200, true)
+	local setReset = smallButton(setLeftBar, "RESET TO DEFAULTS", 216, 340, true)
+
+	local currentSetTab = "CONTROLS"
+	local function setSettingsTab(name)
+		currentSetTab = name
+		for _, t in ipairs(setTabs) do
+			local on = t.name == name
+			tween(t.label, 0.14, { TextColor3 = on and C.white or Color3.fromRGB(120, 140, 175) })
+			tween(t.line, 0.14, { BackgroundTransparency = on and 0 or 1 })
+			tween(t.btn, 0.14, { BackgroundTransparency = on and 0.88 or 1 })
+		end
+		controlsPage.Visible = name == "CONTROLS"
+		soonPage.Visible = name ~= "CONTROLS"
+		setReset.Visible = name == "CONTROLS"
+		waitingBind = nil
+		refreshControls()
+	end
+	local function shiftSettingsTab(d)
+		local idx = table.find(SET_TABS, currentSetTab) or 1
+		local nidx = math.clamp(idx + d, 1, #SET_TABS)
+		if nidx ~= idx then setSettingsTab(SET_TABS[nidx]) end
+	end
+	for _, t in ipairs(setTabs) do
+		t.btn.Activated:Connect(function()
+			if screen == "settings" and t.name ~= currentSetTab then setSettingsTab(t.name) end
+		end)
+	end
+	setReset.Activated:Connect(function()
+		if screen ~= "settings" then return end
+		resetBindings()
+		waitingBind = nil
+		refreshControls()
+	end)
+
+	function openSettings()
+		if screen ~= "main" then return end
+		screen = "settings"
+		inPlay = true
+		showMainButtons(false)
+		tween(menuBlur, 0.3, { Size = 10 })
+		settingsScreen.Visible = true
+		tween(settingsScreen, 0.25, { GroupTransparency = 0 })
+		ctrlFocus.row, ctrlFocus.col = 1, "key"
+		setSettingsTab("CONTROLS")
+	end
+
+	local function closeSettings()
+		if screen ~= "settings" then return end
+		screen = "main"
+		inPlay = false
+		waitingBind = nil
+		tween(menuBlur, 0.3, { Size = 0 })
+		tween(settingsScreen, 0.2, { GroupTransparency = 1 }).Completed:Connect(function()
+			if screen ~= "settings" then settingsScreen.Visible = false end
+		end)
+		showMainButtons(true)
+	end
+	setBack.Activated:Connect(closeSettings)
+
+	------------------------------------------------------------------
+	-- FREE PLAY: езда по полю. Только газ, задний ход и руль (без прыжков, буста и полётов).
+	------------------------------------------------------------------
+	local UU = 118 / FREEPLAY.carLength -- единиц Rocket League (uu) в одном стаде, по длине машины
+	local MAX_SPEED   = 1410 / UU        -- предельная скорость на газу без буста
+	local BRAKE_ACCEL = 3500 / UU        -- тормоз, когда газ против движения
+	local COAST_ACCEL = 525 / UU         -- замедление, когда газ отпущен
+	-- кривизна поворота (1/uu) в зависимости от скорости (uu/s), как в Rocket League
+	local CURVE = { { 0, 0.0069 }, { 500, 0.00398 }, { 1000, 0.00235 }, { 1500, 0.001375 }, { 1750, 0.0011 }, { 2300, 0.00088 } }
+
+	local function throttleAccel(speedAbs)
+		local s = speedAbs * UU
+		local a = 0
+		if s < 1400 then a = 1600 - 1440 * s / 1400 elseif s < 1410 then a = 160 * (1410 - s) / 10 end
+		return a / UU
+	end
+	local function turnCurvature(speedAbs)
+		local s = speedAbs * UU
+		for i = 2, #CURVE do
+			local a, b = CURVE[i - 1], CURVE[i]
+			if s <= b[1] then return (a[2] + (b[2] - a[2]) * (s - a[1]) / (b[1] - a[1])) * UU end
+		end
+		return CURVE[#CURVE][2] * UU
+	end
+	local function moveToward(v, target, step)
+		if v < target then return math.min(v + step, target) end
+		return math.max(v - step, target)
+	end
+
+	-- HUD Free Play
+	local fpHud = Instance.new("Frame")
+	fpHud.Name = "FreePlayHud"
+	fpHud.BackgroundTransparency = 1
+	fpHud.Size = UDim2.fromScale(1, 1)
+	fpHud.Visible = false
+	fpHud.Parent = gui
+
+	local fpTop = Instance.new("Frame")
+	fpTop.BackgroundTransparency = 1
+	fpTop.AnchorPoint = Vector2.new(0.5, 0)
+	fpTop.Position = UDim2.new(0.5, 0, 0, 24)
+	fpTop.Size = UDim2.fromOffset(260, 44)
+	fpTop.Parent = fpHud
+	addScale(fpTop)
+	local fpTitle = label(fpTop, "FREE PLAY", F_HEAVY, 26, C.white)
+	fpTitle.Size = UDim2.fromScale(1, 1)
+	fpTitle.TextXAlignment = Enum.TextXAlignment.Center
+	fpTitle.BackgroundColor3 = C.navy
+	fpTitle.BackgroundTransparency = 0.35
+	stroke(fpTitle, 0.6, 1.5)
+
+	local fpHelp = Instance.new("Frame")
+	fpHelp.BackgroundColor3 = C.navy
+	fpHelp.BackgroundTransparency = 0.35
+	fpHelp.BorderSizePixel = 0
+	fpHelp.AnchorPoint = Vector2.new(0, 1)
+	fpHelp.Position = UDim2.new(0, 32, 1, -32)
+	fpHelp.Size = UDim2.fromOffset(760, 70)
+	fpHelp.Parent = fpHud
+	addScale(fpHelp)
+	local fpHelpKb = label(fpHelp, "", F_BOLD, 17, C.white)
+	fpHelpKb.Position = UDim2.fromOffset(16, 8)
+	fpHelpKb.Size = UDim2.new(1, -32, 0, 24)
+	local fpHelpPad = label(fpHelp, "", F_BOLD, 17, GREY)
+	fpHelpPad.Position = UDim2.fromOffset(16, 38)
+	fpHelpPad.Size = UDim2.new(1, -32, 0, 24)
+
+	local fpSpeed = Instance.new("Frame")
+	fpSpeed.BackgroundTransparency = 1
+	fpSpeed.AnchorPoint = Vector2.new(1, 1)
+	fpSpeed.Position = UDim2.new(1, -40, 1, -32)
+	fpSpeed.Size = UDim2.fromOffset(220, 80)
+	fpSpeed.Parent = fpHud
+	addScale(fpSpeed)
+	local fpSpeedNum = label(fpSpeed, "0", F_HEAVY, 56, C.white)
+	fpSpeedNum.Size = UDim2.new(1, 0, 0, 60)
+	fpSpeedNum.TextXAlignment = Enum.TextXAlignment.Right
+	local fpSpeedUnit = label(fpSpeed, "KM/H", F_BOLD, 16, GREY)
+	fpSpeedUnit.Position = UDim2.fromOffset(0, 58)
+	fpSpeedUnit.Size = UDim2.new(1, 0, 0, 20)
+	fpSpeedUnit.TextXAlignment = Enum.TextXAlignment.Right
+
+	local fpGoal = label(fpHud, "GOAL!", F_HEAVY, 100, C.white)
+	fpGoal.AnchorPoint = Vector2.new(0.5, 0.5)
+	fpGoal.Position = UDim2.fromScale(0.5, 0.38)
+	fpGoal.Size = UDim2.fromOffset(800, 120)
+	fpGoal.TextXAlignment = Enum.TextXAlignment.Center
+	fpGoal.TextStrokeTransparency = 0.4
+	fpGoal.Visible = false
+	addScale(fpGoal)
+
+	-- пауза
+	local pauseMenu = Instance.new("Frame")
+	pauseMenu.BackgroundColor3 = C.navy
+	pauseMenu.BackgroundTransparency = 0.35
+	pauseMenu.BorderSizePixel = 0
+	pauseMenu.Size = UDim2.fromScale(1, 1)
+	pauseMenu.Visible = false
+	pauseMenu.Parent = fpHud
+	local pausePanel = Instance.new("Frame")
+	pausePanel.BackgroundTransparency = 1
+	pausePanel.AnchorPoint = Vector2.new(0.5, 0.5)
+	pausePanel.Position = UDim2.fromScale(0.5, 0.5)
+	pausePanel.Size = UDim2.fromOffset(460, 330)
+	pausePanel.Parent = pauseMenu
+	addScale(pausePanel)
+	local pauseTitle = label(pausePanel, "PAUSED", F_HEAVY, 64, C.white)
+	pauseTitle.Size = UDim2.new(1, 0, 0, 80)
+	pauseTitle.TextXAlignment = Enum.TextXAlignment.Center
+	local pauseItems = {}
+	local pauseSel = 1
+	local function stylePause()
+		for i, it in ipairs(pauseItems) do
+			local on = i == pauseSel
+			it.btn.BackgroundColor3 = on and C.selBg or C.btnBg
+			it.btn.BackgroundTransparency = on and 0 or 0.3
+			it.label.TextColor3 = on and C.selText or C.white
+			it.stroke.Transparency = on and 0.1 or 0.8
+		end
+	end
+	for i, text in ipairs({ "RESUME", "RESET", "EXIT TO MAIN MENU" }) do
+		local b = Instance.new("TextButton")
+		b.Text = ""
+		b.AutoButtonColor = false
+		b.BorderSizePixel = 0
+		b.Position = UDim2.fromOffset(0, 96 + (i - 1) * 76)
+		b.Size = UDim2.fromOffset(460, 62)
+		b.Parent = pausePanel
+		local l = label(b, text, F_HEAVY, 28, C.white)
+		l.Size = UDim2.fromScale(1, 1)
+		l.TextXAlignment = Enum.TextXAlignment.Center
+		pauseItems[i] = { btn = b, label = l, stroke = stroke(b, 0.8, 1.5) }
+		b.MouseEnter:Connect(function() pauseSel = i; stylePause() end)
+	end
+	stylePause()
+
+	local fade = Instance.new("Frame")
+	fade.BackgroundColor3 = Color3.new()
+	fade.BackgroundTransparency = 1
+	fade.BorderSizePixel = 0
+	fade.Size = UDim2.fromScale(1, 1)
+	fade.ZIndex = 50
+	fade.Parent = gui
+
+	-- состояние езды
+	local fp = {
+		pos = Vector3.zero, heading = 0, speed = 0, camPos = nil, camYaw = 0,
+		carLocal = CFrame.identity, halfW = 1, halfL = 2,
+		ballPos = Vector3.zero, ballVel = Vector3.zero, ballRot = CFrame.identity, ballLocal = CFrame.identity,
+		ballR = 2.8, ballScale = 1, goalAt = nil, paused = false, hidden = {},
+	}
+	local fpGen = 0 -- номер текущего входа/выхода (старые затемнения ничего не делают)
+
+	local function carForward(h) return Vector3.new(-math.sin(h), 0, -math.cos(h)) end
+	local function carRight(h) return Vector3.new(math.cos(h), 0, -math.sin(h)) end
+
+	local function placeCar()
+		car:PivotTo(CFrame.new(ORIGIN + fp.pos) * CFrame.Angles(0, fp.heading, 0) * fp.carLocal)
+	end
+	local function placeBall()
+		ball:PivotTo(CFrame.new(ORIGIN + fp.ballPos) * fp.ballRot * fp.ballLocal)
+	end
+
+	local function resetDrive()
+		fp.pos = Vector3.new(0, 0, HL * 0.45)
+		fp.heading, fp.speed = 0, 0
+		fp.ballPos = Vector3.new(0, fp.ballR, 0)
+		fp.ballVel = Vector3.zero
+		fp.goalAt = nil
+		fpGoal.Visible = false
+		fp.camYaw = fp.heading
+		fp.camPos = nil -- камера сразу встаёт за машину
+		placeCar()
+		placeBall()
+	end
+
+	local function setupDrive()
+		-- машина меньше, чем в меню; запоминаем, как её точка опоры сидит относительно земли
+		car:ScaleTo(car:GetScale() * FREEPLAY.carLength / 8.4)
+		standOn(car, ORIGIN, 0)
+		fp.carLocal = CFrame.new(ORIGIN):ToObjectSpace(car:GetPivot())
+		local cbb, cs = car:GetBoundingBox()
+		local function ext(axis) -- размер по мировой оси (коробка может быть повёрнута атрибутом Yaw)
+			return math.abs(cbb.RightVector:Dot(axis)) * cs.X + math.abs(cbb.UpVector:Dot(axis)) * cs.Y
+				+ math.abs(cbb.LookVector:Dot(axis)) * cs.Z
+		end
+		fp.halfW, fp.halfL = ext(Vector3.xAxis) / 2, ext(Vector3.zAxis) / 2
+
+		fp.ballScale = ball:GetScale()
+		local _, bs0 = ball:GetBoundingBox()
+		ball:ScaleTo(fp.ballScale * FREEPLAY.ballSize / math.max(bs0.X, bs0.Y, bs0.Z))
+		standOn(ball, ORIGIN, 0)
+		local bbb, bs = ball:GetBoundingBox()
+		fp.ballR = math.max(bs.X, bs.Y, bs.Z) / 2
+		fp.ballRot = CFrame.identity
+		fp.ballLocal = CFrame.new(bbb.Position):ToObjectSpace(ball:GetPivot())
+		resetDrive()
+	end
+
+	local function teardownDrive()
+		ball:ScaleTo(fp.ballScale)
+		ball:PivotTo(ballBase)
+		setCar(carList[carIndex]) -- машина меню заново, в прежнем размере и месте
+	end
+
+	local function helpText()
+		local b = bindings
+		fpHelpKb.Text = string.format("KEYBOARD   %s / %s  THROTTLE / REVERSE    %s / %s  STEER    R  RESET    P  PAUSE",
+			bindName(b.throttle.key), bindName(b.reverse.key), bindName(b.left.key), bindName(b.right.key))
+		fpHelpPad.Text = string.format("CONTROLLER   %s / %s  THROTTLE / REVERSE    LEFT STICK  STEER    D-PAD UP  RESET    B  PAUSE",
+			bindName(b.throttle.pad), bindName(b.reverse.pad))
+	end
+
+	-- ввод: клавиатура + геймпад; газ -1..1 (минус = назад), руль -1..1 (плюс = вправо)
+	local GP = Enum.UserInputType.Gamepad1
+	local function padValue(state, code)
+		if typeof(code) ~= "EnumItem" then return 0 end
+		if code == Enum.KeyCode.ButtonR2 or code == Enum.KeyCode.ButtonL2 then
+			for _, io in ipairs(state) do
+				if io.KeyCode == code then return math.clamp(io.Position.Z, 0, 1) end
+			end
+			return 0
+		end
+		local ok, down = pcall(function() return UIS:IsGamepadButtonDown(GP, code) end)
+		return (ok and down) and 1 or 0
+	end
+	local function readDriveInput()
+		local b = bindings
+		local thr, steer = 0, 0
+		if UIS:IsKeyDown(b.throttle.key) then thr += 1 end
+		if UIS:IsKeyDown(b.reverse.key) then thr -= 1 end
+		if UIS:IsKeyDown(b.right.key) then steer += 1 end
+		if UIS:IsKeyDown(b.left.key) then steer -= 1 end
+		local ok, state = pcall(function() return UIS:GetGamepadState(GP) end)
+		if ok and state and #state > 0 then
+			thr += padValue(state, b.throttle.pad) - padValue(state, b.reverse.pad)
+			for _, io in ipairs(state) do
+				if io.KeyCode == Enum.KeyCode.Thumbstick1 then
+					local x = io.Position.X
+					if math.abs(x) > 0.15 then steer += math.sign(x) * (math.abs(x) - 0.15) / 0.85 end
+				end
+			end
+			steer += padValue(state, Enum.KeyCode.DPadRight) - padValue(state, Enum.KeyCode.DPadLeft)
+		end
+		return math.clamp(thr, -1, 1), math.clamp(steer, -1, 1)
+	end
+
+	-- границы поля: стены с пандусами и срезанные углы (как у арены Rocket League)
+	local WALL_PAD = 6
+	local function clampToField(p, radius, allowGoal)
+		local hit = false
+		local lx = HW - WALL_PAD - radius
+		local lz = HL - WALL_PAD - radius
+		if allowGoal and math.abs(p.X) < GOAL_W / 2 - radius then lz = HL + GOAL_D - radius end
+		local x, z = p.X, p.Z
+		if math.abs(x) > lx then x = math.sign(x) * lx; hit = true end
+		if math.abs(z) > lz then z = math.sign(z) * lz; hit = true end
+		local corner = 0.875 * (HW + HL) - WALL_PAD * 1.4 - radius * 1.4
+		if math.abs(x) + math.abs(z) > corner and math.abs(z) <= HL then
+			local over = (math.abs(x) + math.abs(z) - corner) / 2
+			x -= math.sign(x) * over
+			z -= math.sign(z) * over
+			hit = true
+		end
+		return Vector3.new(x, p.Y, z), hit
+	end
+
+	local function scoreGoal(side)
+		fp.goalAt = os.clock()
+		fpGoal.Text = "GOAL!"
+		fpGoal.TextColor3 = side < 0 and C.blue or C.orange -- в оранжевые ворота забивает синяя команда
+		fpGoal.Visible = true
+		print("[Menu] FREE PLAY: GOAL")
+	end
+
+	local function stepDrive(dt)
+		local thr, steer = readDriveInput()
+		-- газ / тормоз / накат
+		local v = fp.speed
+		if thr ~= 0 and v ~= 0 and math.sign(thr) ~= math.sign(v) then
+			v = moveToward(v, 0, BRAKE_ACCEL * math.abs(thr) * dt)
+		elseif thr ~= 0 then
+			v += thr * throttleAccel(math.abs(v)) * dt
+		else
+			v = moveToward(v, 0, COAST_ACCEL * dt)
+		end
+		v = math.clamp(v, -MAX_SPEED, MAX_SPEED)
+		-- руль: радиус поворота зависит от скорости, на месте машина не крутится
+		fp.heading -= steer * v * turnCurvature(math.abs(v)) * dt
+		local fwd = carForward(fp.heading)
+		local want = fp.pos + fwd * v * dt
+		local got, hit = clampToField(want, math.max(fp.halfW, fp.halfL), false)
+		if hit then v = (got - fp.pos):Dot(fwd) / dt * 0.9 end -- у стены машина скользит вдоль неё
+		fp.pos, fp.speed = got, v
+		placeCar()
+
+		-- мяч: катится, тормозит, отскакивает от стен; в воротах — гол
+		local R = fp.ballR
+		if fp.goalAt then
+			if os.clock() - fp.goalAt > 2.5 then
+				fp.goalAt = nil
+				fpGoal.Visible = false
+				fp.ballPos, fp.ballVel = Vector3.new(0, R, 0), Vector3.zero
+			end
+		else
+			local bv = fp.ballVel * math.exp(-0.45 * dt)
+			local bp = fp.ballPos + bv * dt
+			local cp, bhit = clampToField(bp, R, true)
+			if bhit then
+				if cp.X ~= bp.X then bv = Vector3.new(-bv.X * 0.6, 0, bv.Z) end
+				if cp.Z ~= bp.Z then bv = Vector3.new(bv.X, 0, -bv.Z * 0.6) end
+			end
+			bp = cp
+			-- удар машиной: ближайшая точка корпуса к центру мяча
+			local right = carRight(fp.heading)
+			local d = Vector3.new(bp.X - fp.pos.X, 0, bp.Z - fp.pos.Z)
+			local lx = math.clamp(d:Dot(right), -fp.halfW, fp.halfW)
+			local lz = math.clamp(d:Dot(fwd), -fp.halfL, fp.halfL)
+			local diff = d - (right * lx + fwd * lz)
+			local dist = diff.Magnitude
+			if dist < R then
+				local n = dist > 1e-3 and diff / dist or fwd
+				bp = Vector3.new(fp.pos.X, R, fp.pos.Z) + right * lx + fwd * lz + n * R
+				local rel = bv - fwd * fp.speed
+				local vn = rel:Dot(n)
+				if vn < 0 then bv -= n * vn * 1.6 end
+			end
+			fp.ballPos, fp.ballVel = Vector3.new(bp.X, R, bp.Z), bv
+			if math.abs(bp.Z) > HL + R then scoreGoal(math.sign(bp.Z)) end
+			-- вращение катящегося мяча
+			local sp = bv.Magnitude
+			if sp > 0.05 then
+				fp.ballRot = CFrame.fromAxisAngle(Vector3.new(bv.Z, 0, -bv.X).Unit, sp * dt / R) * fp.ballRot
+			end
+		end
+		placeBall()
+
+		fpSpeedNum.Text = tostring(math.floor(math.abs(v) * UU * 0.036 + 0.5))
+	end
+
+	local function updateDriveCamera(dt)
+		local cam = workspace.CurrentCamera
+		if cam.CameraType ~= Enum.CameraType.Scriptable then cam.CameraType = Enum.CameraType.Scriptable end
+		cam.FieldOfView = FREEPLAY.camFov
+		-- камера мягко поворачивается за машиной
+		local diff = (fp.heading - fp.camYaw + math.pi) % (2 * math.pi) - math.pi
+		fp.camYaw += diff * (1 - math.exp(-6 * dt))
+		local back = carForward(fp.camYaw)
+		local carPos = ORIGIN + fp.pos
+		local want = carPos - back * FREEPLAY.camDistance + Vector3.new(0, FREEPLAY.camHeight, 0)
+		fp.camPos = fp.camPos and fp.camPos:Lerp(want, 1 - math.exp(-12 * dt)) or want
+		cam.CFrame = CFrame.lookAt(fp.camPos, carPos + Vector3.new(0, FREEPLAY.camHeight * 0.45, 0) + back * 4)
+	end
+
+	table.insert(conns, RunService.RenderStepped:Connect(function(dt)
+		if not driving then return end
+		dt = math.min(dt, 1 / 20)
+		if not fp.paused then stepDrive(dt) end
+		updateDriveCamera(dt)
+	end))
+
+	local function setPaused(on)
+		fp.paused = on
+		pauseMenu.Visible = on
+		pauseSel = 1
+		stylePause()
+		UIS.MouseIconEnabled = on
+	end
+
+	function startFreeplay()
+		if screen ~= "play" then return end
+		screen = "freeplay"
+		fpGen += 1
+		local my = fpGen
+		tween(fade, 0.25, { BackgroundTransparency = 0 }).Completed:Connect(function()
+			if fpGen ~= my or screen ~= "freeplay" then return end
+			table.clear(fp.hidden)
+			for _, ch in ipairs(gui:GetChildren()) do
+				if ch:IsA("GuiObject") and ch ~= fpHud and ch ~= fade then
+					fp.hidden[ch] = ch.Visible
+					ch.Visible = false
+				end
+			end
+			menuBlur.Size = 0
+			dof.Enabled = false
+			setupDrive()
+			helpText()
+			driving = true
+			setPaused(false)
+			fpHud.Visible = true
+			tween(fade, 0.35, { BackgroundTransparency = 1 })
+		end)
+	end
+
+	local function exitFreeplay()
+		if screen ~= "freeplay" then return end
+		screen = "leaving"
+		fpGen += 1
+		local my = fpGen
+		tween(fade, 0.25, { BackgroundTransparency = 0 }).Completed:Connect(function()
+			if fpGen ~= my then return end
+			driving = false
+			setPaused(false)
+			UIS.MouseIconEnabled = true
+			fpHud.Visible = false
+			teardownDrive()
+			for ch, vis in pairs(fp.hidden) do ch.Visible = vis end
+			playScreen.Visible = false
+			playScreen.GroupTransparency = 1
+			dof.Enabled = true
+			menuBlur.Size = 0
+			screen = "main"
+			inPlay = false
+			showMainButtons(true)
+			tween(fade, 0.35, { BackgroundTransparency = 1 })
+		end)
+	end
+
+	local function activatePause(i)
+		if i == 1 then
+			setPaused(false)
+		elseif i == 2 then
+			resetDrive()
+			setPaused(false)
+		else
+			exitFreeplay()
+		end
+	end
+	for i, it in ipairs(pauseItems) do
+		it.btn.Activated:Connect(function() if screen == "freeplay" and fp.paused then activatePause(i) end end)
+	end
+
+	-- клавиши экрана настроек (вызывается из общего обработчика ниже)
+	function extra.settingsKey(input, k, confirm)
+		if waitingBind then
+			-- ждём новую клавишу / кнопку для действия
+			if os.clock() - waitingBind.at < 0.1 then return end
+			if isKey(k, K.Backspace, K.Escape, K.ButtonB) then finishRebind(nil) return end
+			local isPad = string.sub(input.UserInputType.Name, 1, 7) == "Gamepad"
+			if waitingBind.col == "key" and input.UserInputType == Enum.UserInputType.Keyboard and not RESERVED[k] then
+				finishRebind(k)
+			elseif waitingBind.col == "pad" and isPad and not RESERVED[k]
+				and (string.sub(k.Name, 1, 6) == "Button" or string.sub(k.Name, 1, 4) == "DPad") then
+				finishRebind(k)
+			end
+			return
+		end
+		local onControls = currentSetTab == "CONTROLS"
+		if isKey(k, K.Q, K.ButtonL1) then
+			shiftSettingsTab(-1)
+		elseif isKey(k, K.E, K.ButtonR1) then
+			shiftSettingsTab(1)
+		elseif onControls and isKey(k, K.Up, K.W, K.DPadUp) then
+			ctrlFocus.row = math.max(1, ctrlFocus.row - 1)
+			refreshControls()
+		elseif onControls and isKey(k, K.Down, K.S, K.DPadDown) then
+			ctrlFocus.row = math.min(#ctrlRows, ctrlFocus.row + 1)
+			refreshControls()
+		elseif onControls and isKey(k, K.Left, K.A, K.DPadLeft) then
+			ctrlFocus.col = "key"
+			refreshControls()
+		elseif onControls and isKey(k, K.Right, K.D, K.DPadRight) then
+			ctrlFocus.col = "pad"
+			refreshControls()
+		elseif onControls and confirm then
+			startRebind(ctrlRows[ctrlFocus.row].id, ctrlFocus.col)
+		elseif isKey(k, K.Backspace, K.ButtonB) then
+			closeSettings()
+		end
+	end
+	-- клавиши Free Play
+	function extra.freeplayKey(k, confirm)
+		if fp.paused then
+			if isKey(k, K.Up, K.W, K.DPadUp) then
+				pauseSel = math.max(1, pauseSel - 1)
+				stylePause()
+			elseif isKey(k, K.Down, K.S, K.DPadDown) then
+				pauseSel = math.min(#pauseItems, pauseSel + 1)
+				stylePause()
+			elseif confirm then
+				activatePause(pauseSel)
+			elseif isKey(k, K.P, K.ButtonB, K.Backspace) then
+				setPaused(false)
+			end
+		elseif isKey(k, K.P, K.ButtonB, K.Backspace) then
+			setPaused(true)
+		elseif isKey(k, K.R, K.DPadUp) then
+			resetDrive()
+		end
+	end
+end
+buildSettingsAndFreeplay()
+
 -- клавиатура / геймпад
 local function isKey(k, ...)
 	for _, v in ipairs({ ... }) do if k == v then return true end end
@@ -1568,6 +2388,9 @@ table.insert(conns, UIS.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed and not (input.KeyCode == Enum.KeyCode.ButtonA and GuiService.SelectedObject == nil) then return end
 	local k = input.KeyCode
 	local confirm = isKey(k, K.Return, K.KeypadEnter, K.ButtonA)
+	if screen == "leaving" then return end
+	if screen == "settings" then extra.settingsKey(input, k, confirm) return end
+	if screen == "freeplay" then extra.freeplayKey(k, confirm) return end
 	if screen == "list" then
 		if isKey(k, K.Up, K.W, K.DPadUp) then
 			setFocus(math.max(1, focusRow - 1))
@@ -1631,6 +2454,8 @@ _G.CloseMainMenu = function()
 	for _, e in ipairs(effects) do e:Destroy() end
 	for prop, v in pairs(savedLighting) do Lighting[prop] = v end
 	for _, child in ipairs(stashed) do child.Parent = Lighting end
+	driving = false
+	UIS.MouseIconEnabled = true
 	workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
 	workspace.CurrentCamera.FieldOfView = savedFov
 	pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, true) end)
