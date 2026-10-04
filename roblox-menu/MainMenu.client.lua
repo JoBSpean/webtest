@@ -201,15 +201,25 @@ local BOOST = Color3.fromRGB(255, 160, 40)
 local terrain = workspace.Terrain
 local TERRAIN_CF, TERRAIN_SIZE = at(0, -2, 0), Vector3.new(FW + 60, 4, FL + 60)
 local oldGrassColor = terrain:GetMaterialColor(Enum.Material.Grass)
+local oldGrassLength
+pcall(function() oldGrassLength = terrain.GrassLength end)
 local usedTerrain = false
 local orbs, ribbon = {}, {}
 
 local function buildStadium()
-	-- газон: Terrain-трава с объёмными травинками (Terrain > Decoration = true)
-	usedTerrain = true
-	pcall(function() terrain.Decoration = true end)
-	terrain:SetMaterialColor(Enum.Material.Grass, Color3.fromRGB(78, 128, 44))
-	terrain:FillBlock(TERRAIN_CF, TERRAIN_SIZE, Enum.Material.Grass)
+	-- газон: Terrain-трава с короткими травинками, как газон в Rocket League.
+	-- Если укоротить травинки нельзя, а они включены (Terrain > Decoration),
+	-- кладём обычный газон без травинок, чтобы трава не закрывала камеру.
+	local shortGrass = pcall(function() terrain.GrassLength = 0.1 end)
+	local blades = true
+	pcall(function() blades = terrain.Decoration end)
+	if shortGrass or not blades then
+		usedTerrain = true
+		terrain:SetMaterialColor(Enum.Material.Grass, Color3.fromRGB(78, 128, 44))
+		terrain:FillBlock(TERRAIN_CF, TERRAIN_SIZE, Enum.Material.Grass)
+	else
+		part(Vector3.new(FW + 60, 1, FL + 60), at(0, -0.5, 0), Color3.fromRGB(58, 102, 36), Enum.Material.Grass)
+	end
 	-- подсветка половин (синяя / оранжевая)
 	part(Vector3.new(FW, 0.02, HL), at(0, 0.09, -HL / 2), C.orange, Enum.Material.Neon, 0.9)
 	part(Vector3.new(FW, 0.02, HL), at(0, 0.09, HL / 2), C.blue, Enum.Material.Neon, 0.9)
@@ -1005,6 +1015,10 @@ table.insert(conns, UIS.InputBegan:Connect(function(input, gameProcessed)
 end))
 
 rescale()
+-- шрифты грузятся заранее, чтобы все пункты меню были одинаково жирными
+task.spawn(function()
+	pcall(function() game:GetService("ContentProvider"):PreloadAsync(gui:GetDescendants()) end)
+end)
 table.insert(conns, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale))
 selectMain(1)
 task.delay(0.2, showMainButtons, true)
@@ -1019,6 +1033,7 @@ _G.CloseMainMenu = function()
 	if usedTerrain then
 		terrain:FillBlock(TERRAIN_CF, TERRAIN_SIZE, Enum.Material.Air)
 		terrain:SetMaterialColor(Enum.Material.Grass, oldGrassColor)
+		if oldGrassLength then pcall(function() terrain.GrassLength = oldGrassLength end) end
 	end
 	for _, e in ipairs(effects) do e:Destroy() end
 	for prop, v in pairs(savedLighting) do Lighting[prop] = v end

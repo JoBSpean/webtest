@@ -3,7 +3,7 @@
 **Быстрый запуск:** скачайте `RocketMenu.rbxlx`, откройте двойным кликом (запустится Roblox Studio) и нажмите **Play**.
 
 Чтобы добавить меню в свою игру, вставьте `MainMenu.client.lua` как LocalScript в `StarterPlayer > StarterPlayerScripts`.
-Для лучшей картинки: `Lighting > Technology = Future`, `Workspace > Terrain > Decoration = true` (объёмная трава).
+Для лучшей картинки: `Lighting > Technology = Future`, `Workspace > Terrain > Decoration = true` и `GrassLength = 0.1` (короткая объёмная трава).
 
 ## Свои модели (машинка, мяч, стадион)
 1. В Roblox Studio откройте **Toolbox** (Вид → Toolbox) или импортируйте свою модель через **File → Import 3D**.
