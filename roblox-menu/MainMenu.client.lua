@@ -16,6 +16,7 @@ local TweenService = game:GetService("TweenService")
 local RunService   = game:GetService("RunService")
 local Lighting     = game:GetService("Lighting")
 local UIS          = game:GetService("UserInputService")
+local GuiService   = game:GetService("GuiService")
 local StarterGui   = game:GetService("StarterGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -175,6 +176,7 @@ local function fitModel(src, targetSize, horizontalOnly)
 	local m = src:Clone()
 	if m:IsA("BasePart") then
 		local wrap = Instance.new("Model")
+		for k, v in pairs(m:GetAttributes()) do wrap:SetAttribute(k, v) end
 		m.Parent = wrap
 		wrap.PrimaryPart = m
 		m = wrap
@@ -580,6 +582,7 @@ end
 ------------------------------------------------------------------
 -- КАМЕРА (лёгкое «дыхание», как в игре)
 ------------------------------------------------------------------
+local savedFov = workspace.CurrentCamera.FieldOfView
 local CAM_POS  = ORIGIN + Vector3.new(-3, 4.2, 58)
 local CAM_LOOK = ORIGIN + Vector3.new(-6.5, 3.6, 40)
 local t0 = os.clock()
@@ -619,14 +622,18 @@ gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = player:WaitForChild("PlayerGui")
 
 local scales = {}
-local function addScale(obj)
+-- fitWidth: ширина блока в пикселях макета 1920x1080; блок уменьшается, чтобы влезть по ширине
+local function addScale(obj, fitWidth)
 	local s = Instance.new("UIScale")
 	s.Parent = obj
-	table.insert(scales, s)
+	table.insert(scales, { scale = s, fitWidth = fitWidth })
 end
 local function rescale()
-	local y = workspace.CurrentCamera.ViewportSize.Y
-	for _, s in ipairs(scales) do s.Scale = math.clamp(y / 1080, 0.5, 1.6) end
+	local vp = workspace.CurrentCamera.ViewportSize
+	local base = math.clamp(vp.Y / 1080, 0.5, 1.6)
+	for _, e in ipairs(scales) do
+		e.scale.Scale = e.fitWidth and math.min(base, vp.X / e.fitWidth) or base
+	end
 end
 
 local function label(parent, text, font, size, color)
@@ -818,6 +825,7 @@ end
 local function showMainButtons(visible)
 	for i, b in ipairs(mainButtons) do
 		task.delay(visible and (i - 1) * 0.045 or 0, function()
+			if visible == inPlay then return end -- экран уже переключили ещё раз
 			tween(b.holder, 0.3, { GroupTransparency = visible and 0 or 1,
 				Position = UDim2.fromOffset(visible and 0 or -60, b.y) })
 		end)
@@ -864,7 +872,7 @@ row.AnchorPoint = Vector2.new(0.5, 0.5)
 row.Position = UDim2.fromScale(0.5, 0.55)
 row.Size = UDim2.fromOffset(#MODES * CARD_W + (#MODES - 1) * CARD_GAP, CARD_H)
 row.Parent = playScreen
-addScale(row)
+addScale(row, #MODES * CARD_W + (#MODES - 1) * CARD_GAP + 120)
 
 local cards, cardSel = {}, 0
 for k, mode in ipairs(MODES) do
@@ -1040,7 +1048,9 @@ local function isKey(k, ...)
 end
 local K = Enum.KeyCode
 table.insert(conns, UIS.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
+	-- ButtonA забирает привязка прыжка, но персонажа в меню нет, так что пропускаем её,
+	-- если только геймпад не выделил кнопку сам (тогда она нажмётся через Activated)
+	if gameProcessed and not (input.KeyCode == Enum.KeyCode.ButtonA and GuiService.SelectedObject == nil) then return end
 	local k = input.KeyCode
 	local confirm = isKey(k, K.Return, K.KeypadEnter, K.ButtonA)
 	if inPlay then
@@ -1089,5 +1099,6 @@ _G.CloseMainMenu = function()
 	for prop, v in pairs(savedLighting) do Lighting[prop] = v end
 	for _, child in ipairs(stashed) do child.Parent = Lighting end
 	workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+	workspace.CurrentCamera.FieldOfView = savedFov
 	pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, true) end)
 end
