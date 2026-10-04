@@ -698,7 +698,7 @@ local function addScale(obj, fitWidth)
 end
 local function rescale()
 	local vp = workspace.CurrentCamera.ViewportSize
-	local base = math.clamp(vp.Y / 1080, 0.5, 1.6)
+	local base = math.clamp(vp.Y / 1080, 0.35, 1.6)
 	for _, e in ipairs(scales) do
 		e.scale.Scale = e.fitWidth and math.min(base, vp.X / e.fitWidth) or base
 	end
@@ -1059,7 +1059,7 @@ for k, c in ipairs(cards) do
 end
 
 -- маленькая тёмная кнопка внизу экрана (BACK, MULTIPLE SELECTION)
-local function smallButton(parent, text, x, width)
+local function smallButton(parent, text, x, width, inBar)
 	local b = Instance.new("TextButton")
 	b.Text = ""
 	b.AutoButtonColor = false
@@ -1067,10 +1067,10 @@ local function smallButton(parent, text, x, width)
 	b.BackgroundColor3 = C.btnBg
 	b.BackgroundTransparency = 0.3
 	b.AnchorPoint = Vector2.new(0, 1)
-	b.Position = UDim2.new(0, x, 1, -56)
+	b.Position = UDim2.new(0, x, 1, inBar and 0 or -56)
 	b.Size = UDim2.fromOffset(width, 52)
 	b.Parent = parent
-	addScale(b)
+	if not inBar then addScale(b) end
 	local st = stroke(b, 0.8, 1.5)
 	local l = label(b, text, F_HEAVY, 24, C.white)
 	l.Position = UDim2.fromOffset(22, 0)
@@ -1182,7 +1182,7 @@ local function rankEmblem(parent, rankName, tier)
 	outer.Size = UDim2.fromOffset(38, 38)
 	outer.Rotation = 45
 	outer.Parent = holder
-	gradient(outer, ColorSequence.new(colors[1], colors[2]), 90)
+	gradient(outer, ColorSequence.new(colors[1], colors[2]), 45) -- 45 + поворот 45 = сверху вниз
 	stroke(outer, 0.4, 1.5)
 	local inner = Instance.new("Frame")
 	inner.BorderSizePixel = 0
@@ -1205,6 +1205,8 @@ for _, name in ipairs(TAB_ORDER) do chosen[name] = {} end
 local multi = false    -- MULTIPLE SELECTION
 local focusRow = 1
 local rows = {}
+local searching = false -- идёт поиск матча: выбор плейлистов заблокирован
+local listOpenedAt = 0  -- время открытия экрана (второй клик двойного щелчка по карточке игнорируется)
 
 local function styleRow(r)
 	local isChosen = chosen[currentTab][r.index] == true
@@ -1236,7 +1238,7 @@ local function setFocus(i)
 end
 
 local function toggleRow(i)
-	if not rows[i] then return end
+	if searching or not rows[i] then return end
 	focusRow = i
 	local set = chosen[currentTab]
 	if multi then
@@ -1320,7 +1322,9 @@ local function buildRows()
 		end
 
 		plate.MouseEnter:Connect(function() if screen == "list" then setFocus(i) end end)
-		plate.Activated:Connect(function() if screen == "list" then toggleRow(i) end end)
+		plate.Activated:Connect(function()
+			if screen == "list" and os.clock() - listOpenedAt > 0.35 then toggleRow(i) end
+		end)
 		rows[i] = r
 	end
 	focusRow = math.clamp(focusRow, 1, math.max(1, #rows))
@@ -1328,8 +1332,15 @@ local function buildRows()
 end
 
 -- нижняя панель: BACK, MULTIPLE SELECTION, FIND MATCH и плашка поиска
-local listBack = smallButton(listScreen, "‹  BACK", 64, 200)
-local multiBtn, multiLabel = smallButton(listScreen, "MULTIPLE SELECTION", 280, 340)
+local leftBar = Instance.new("Frame")
+leftBar.BackgroundTransparency = 1
+leftBar.AnchorPoint = Vector2.new(0, 1)
+leftBar.Position = UDim2.new(0, 64, 1, -56)
+leftBar.Size = UDim2.fromOffset(556, 52)
+leftBar.Parent = listScreen
+addScale(leftBar)
+local listBack = smallButton(leftBar, "‹  BACK", 0, 200, true)
+local multiBtn, multiLabel = smallButton(leftBar, "MULTIPLE SELECTION", 216, 340, true)
 multiLabel.Position = UDim2.fromOffset(60, 0)
 multiLabel.Size = UDim2.new(1, -60, 1, 0)
 local multiBox = Instance.new("Frame")
@@ -1348,16 +1359,23 @@ multiFill.Size = UDim2.fromOffset(14, 14)
 multiFill.Visible = false
 multiFill.Parent = multiBox
 
+local rightBar = Instance.new("Frame")
+rightBar.BackgroundTransparency = 1
+rightBar.AnchorPoint = Vector2.new(1, 1)
+rightBar.Position = UDim2.new(1, -64, 1, -50)
+rightBar.Size = UDim2.fromOffset(340, 152)
+rightBar.Parent = listScreen
+addScale(rightBar)
+
 local findBtn = Instance.new("TextButton")
 findBtn.Text = ""
 findBtn.AutoButtonColor = false
 findBtn.BorderSizePixel = 0
 findBtn.BackgroundColor3 = C.white
 findBtn.AnchorPoint = Vector2.new(1, 1)
-findBtn.Position = UDim2.new(1, -64, 1, -50)
+findBtn.Position = UDim2.fromScale(1, 1)
 findBtn.Size = UDim2.fromOffset(340, 64)
-findBtn.Parent = listScreen
-addScale(findBtn)
+findBtn.Parent = rightBar
 gradient(findBtn, ColorSequence.new(C.play1, C.play2), 0)
 local findStroke = stroke(findBtn, 0.6, 2)
 local findLabel = label(findBtn, "FIND MATCH", F_HEAVY, 32, C.white)
@@ -1371,11 +1389,10 @@ banner.BorderSizePixel = 0
 banner.BackgroundColor3 = C.navy
 banner.BackgroundTransparency = 0.15
 banner.AnchorPoint = Vector2.new(1, 1)
-banner.Position = UDim2.new(1, -64, 1, -128)
+banner.Position = UDim2.new(1, 0, 1, -78)
 banner.Size = UDim2.fromOffset(340, 70)
 banner.Visible = false
-banner.Parent = listScreen
-addScale(banner)
+banner.Parent = rightBar
 stroke(banner, 0.5, 1.5)
 local bannerTitle = label(banner, "", F_HEAVY, 24, C.white)
 bannerTitle.Position = UDim2.fromOffset(18, 6)
@@ -1385,8 +1402,9 @@ bannerSub.Position = UDim2.fromOffset(18, 40)
 bannerSub.Size = UDim2.new(1, -36, 0, 20)
 bannerSub.TextTruncate = Enum.TextTruncate.AtEnd
 
-local searching = false
+local searchGen = 0   -- номер текущего поиска / сообщения на плашке
 local function stopSearch()
+	searchGen += 1
 	searching = false
 	banner.Visible = false
 	findLabel.Text = "FIND MATCH"
@@ -1396,11 +1414,13 @@ local function startSearch()
 	for i, pl in ipairs(PLAYLISTS[currentTab]) do
 		if chosen[currentTab][i] then table.insert(names, pl.name) end
 	end
+	searchGen += 1
+	local myGen = searchGen
 	if #names == 0 then
 		bannerTitle.Text = "SELECT A PLAYLIST"
 		bannerSub.Text = ""
 		banner.Visible = true
-		task.delay(1.5, function() if not searching then banner.Visible = false end end)
+		task.delay(1.5, function() if searchGen == myGen then banner.Visible = false end end)
 		return
 	end
 	searching = true
@@ -1410,7 +1430,7 @@ local function startSearch()
 	findLabel.Text = "CANCEL"
 	print("[Menu] FIND MATCH > " .. bannerSub.Text)
 	task.spawn(function()
-		while searching and gui.Parent do
+		while searching and searchGen == myGen and gui.Parent do
 			local sec = math.floor(os.clock() - started)
 			bannerTitle.Text = string.format("SEARCHING  %d:%02d", sec // 60, sec % 60)
 			task.wait(0.25)
@@ -1422,15 +1442,19 @@ findBtn.Activated:Connect(function()
 	if searching then stopSearch() else startSearch() end
 end)
 
+-- в одиночном режиме во вкладке остаётся один плейлист (с наименьшим номером)
+local function keepOne(name, fallback)
+	local set, keep = chosen[name], nil
+	for i in pairs(set) do if not keep or i < keep then keep = i end end
+	table.clear(set)
+	if keep or fallback then set[keep or fallback] = true end
+end
 local function toggleMulti()
+	if searching then return end
 	multi = not multi
 	multiFill.Visible = multi
 	if not multi then
-		-- остаётся один выбранный плейлист
-		local set, keep = chosen[currentTab], nil
-		for i in pairs(set) do if not keep or i < keep then keep = i end end
-		table.clear(set)
-		set[keep or focusRow] = true
+		for _, name in ipairs(TAB_ORDER) do keepOne(name, name == currentTab and focusRow or nil) end
 	end
 	restyleRows()
 end
@@ -1440,7 +1464,7 @@ local function setTab(name)
 	if not PLAYLISTS[name] then return end
 	currentTab = name
 	focusRow = 1
-	if not multi and next(chosen[name]) == nil then chosen[name][1] = true end
+	if not multi then keepOne(name, 1) end
 	for _, t in ipairs(tabs) do
 		local on = t.name == name
 		tween(t.label, 0.14, { TextColor3 = on and C.white or Color3.fromRGB(120, 140, 175) })
@@ -1453,10 +1477,13 @@ local function setTab(name)
 end
 local function shiftTab(d)
 	local idx = table.find(TAB_ORDER, currentTab) or 1
-	setTab(TAB_ORDER[math.clamp(idx + d, 1, #TAB_ORDER)])
+	local nidx = math.clamp(idx + d, 1, #TAB_ORDER)
+	if nidx ~= idx then setTab(TAB_ORDER[nidx]) end -- Q на первой / E на последней вкладке ничего не сбрасывают
 end
 for _, t in ipairs(tabs) do
-	t.btn.Activated:Connect(function() if screen == "list" then setTab(t.name) end end)
+	t.btn.Activated:Connect(function()
+		if screen == "list" and t.name ~= currentTab then setTab(t.name) end
+	end)
 end
 
 ------------------------------------------------------------------
@@ -1494,6 +1521,7 @@ back.Activated:Connect(closePlay)
 function openList(tab)
 	if screen ~= "play" then return end
 	screen = "list"
+	listOpenedAt = os.clock()
 	tween(playScreen, 0.2, { GroupTransparency = 1 }).Completed:Connect(function()
 		if screen == "list" then playScreen.Visible = false end
 	end)
