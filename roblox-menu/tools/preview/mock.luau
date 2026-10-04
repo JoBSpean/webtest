@@ -2124,6 +2124,45 @@ service("GuiService", { AutoSelectGuiEnabled = true, GuiNavigationEnabled = true
 	},
 	getters = { TopbarInset = function() return DT.Rect.new(0, 0, P.viewport[1], GUI_INSET) end },
 })
+-- Live input state, driven by the driver's key/press/hold/pad actions (see INPUT HELPERS below).
+-- keys: KeyCode name -> InputObject of the keyboard keys held now.
+-- pad:  nil while no gamepad is connected; once a pad action ran (or the scenario has gamepad = true)
+--       Gamepad1 stays connected: axes LX/LY (Thumbstick1), RX/RY (Thumbstick2), LT/RT (ButtonL2/R2 Position.Z),
+--       buttons = KeyCode name -> true, io = KeyCode name -> live InputObject (what GetGamepadState returns).
+local INPUT = { keys = {}, keyOrder = {}, pad = nil, lastType = Enum.UserInputType.MouseMovement }
+M.input = INPUT
+local GAMEPAD_KEYS = { "ButtonX", "ButtonY", "ButtonA", "ButtonB", "ButtonR1", "ButtonL1", "ButtonR2", "ButtonL2",
+	"ButtonR3", "ButtonL3", "ButtonStart", "ButtonSelect", "DPadLeft", "DPadRight", "DPadUp", "DPadDown",
+	"Thumbstick1", "Thumbstick2" }
+local IS_GAMEPAD_KEY = {}
+for _, n in ipairs(GAMEPAD_KEYS) do IS_GAMEPAD_KEY[n] = true end
+M.IS_GAMEPAD_KEY = IS_GAMEPAD_KEY
+local TRIGGER_DOWN = 0.5 -- ButtonR2/ButtonL2 count as pressed above this
+local function padButtonDown(name)
+	local pad = INPUT.pad
+	if not pad then return false end
+	if name == "ButtonR2" then return pad.buttons.ButtonR2 == true or pad.axes.RT > TRIGGER_DOWN end
+	if name == "ButtonL2" then return pad.buttons.ButtonL2 == true or pad.axes.LT > TRIGGER_DOWN end
+	return pad.buttons[name] == true
+end
+M.padButtonDown = padButtonDown
+local IOMT = { __type = "InputObject" }
+local MODIFIER_KEYS = { Shift = { "LeftShift", "RightShift" }, Ctrl = { "LeftControl", "RightControl" },
+	Alt = { "LeftAlt", "RightAlt" }, Meta = { "LeftMeta", "RightMeta", "LeftSuper", "RightSuper" } }
+IOMT.__index = {
+	IsModifierKeyDown = function(_, mod)
+		for _, k in ipairs(MODIFIER_KEYS[mod and mod.Name or ""] or {}) do if INPUT.keys[k] then return true end end
+		return false
+	end,
+}
+IOMT.__tostring = function(io) return "InputObject(" .. io.UserInputType.Name .. ", " .. io.KeyCode.Name .. ")" end
+local function newInputObject(kind, keyCode, position)
+	return setmetatable({ KeyCode = keyCode or Enum.KeyCode.Unknown, UserInputType = kind,
+		UserInputState = Enum.UserInputState.Begin, Position = position or V3(M.mouse.X, M.mouse.Y, 0), Delta = V3(0, 0, 0),
+		Name = "InputObject" }, IOMT)
+end
+M.newInputObject = newInputObject
+local function gamepadEnum(gp) return gp == Enum.UserInputType.Gamepad1 end
 service("UserInputService", { MouseBehavior = Enum.MouseBehavior.Default, MouseIconEnabled = true, MouseDeltaSensitivity = 1,
 	ModalEnabled = false, OverrideMouseIconBehavior = Enum.OverrideMouseIconBehavior.None }, {
 	events = { "InputBegan", "InputEnded", "InputChanged", "LastInputTypeChanged", "GamepadConnected", "GamepadDisconnected",
@@ -2131,18 +2170,44 @@ service("UserInputService", { MouseBehavior = Enum.MouseBehavior.Default, MouseI
 		"WindowFocusReleased", "TextBoxFocused", "TextBoxFocusReleased", "PointerAction" },
 	getters = {
 		TouchEnabled = function() return false end, KeyboardEnabled = function() return true end,
-		MouseEnabled = function() return true end, GamepadEnabled = function() return false end,
+		MouseEnabled = function() return true end, GamepadEnabled = function() return INPUT.pad ~= nil end,
 		VREnabled = function() return false end, AccelerometerEnabled = function() return false end,
-		GyroscopeEnabled = function() return false end, PreferredInput = function() return Enum.PreferredInput.KeyboardAndMouse end,
+		GyroscopeEnabled = function() return false end,
+		PreferredInput = function()
+			return INPUT.lastType == Enum.UserInputType.Gamepad1 and Enum.PreferredInput.Gamepad or Enum.PreferredInput.KeyboardAndMouse
+		end,
 	},
 	methods = {
 		GetMouseLocation = function() return V2(M.mouse.X, M.mouse.Y) end, GetMouseDelta = function() return V2(0, 0) end,
-		IsKeyDown = function() return false end, IsMouseButtonPressed = function() return false end,
-		GetKeysPressed = function() return {} end, GetMouseButtonsPressed = function() return {} end,
-		GetLastInputType = function() return Enum.UserInputType.MouseMovement end,
-		GetGamepadConnected = function() return false end, GetConnectedGamepads = function() return {} end,
-		GetNavigationGamepads = function() return {} end, IsGamepadButtonDown = function() return false end,
-		GetGamepadState = function() return {} end, GetSupportedGamepadKeyCodes = function() return {} end,
+		IsKeyDown = function(_, kc) return typeOf(kc) == "EnumItem" and INPUT.keys[kc.Name] ~= nil end,
+		IsMouseButtonPressed = function() return false end,
+		GetKeysPressed = function()
+			local t = {}
+			for _, n in ipairs(INPUT.keyOrder) do if INPUT.keys[n] then table.insert(t, INPUT.keys[n]) end end
+			return t
+		end,
+		GetMouseButtonsPressed = function() return {} end,
+		GetLastInputType = function() return INPUT.lastType end,
+		GetGamepadConnected = function(_, gp) return gamepadEnum(gp) and INPUT.pad ~= nil end,
+		GetConnectedGamepads = function() return INPUT.pad and { Enum.UserInputType.Gamepad1 } or {} end,
+		GetNavigationGamepads = function() return INPUT.pad and { Enum.UserInputType.Gamepad1 } or {} end,
+		IsNavigationGamepad = function(_, gp) return gamepadEnum(gp) and INPUT.pad ~= nil end,
+		IsGamepadButtonDown = function(_, gp, kc)
+			return gamepadEnum(gp) and typeOf(kc) == "EnumItem" and padButtonDown(kc.Name)
+		end,
+		GetGamepadState = function(_, gp)
+			if not (gamepadEnum(gp) and INPUT.pad) then return {} end
+			local t = {}
+			for i, n in ipairs(GAMEPAD_KEYS) do t[i] = INPUT.pad.io[n] end
+			return t
+		end,
+		GetSupportedGamepadKeyCodes = function(_, gp)
+			if not (gamepadEnum(gp) and INPUT.pad) then return {} end
+			local t = {}
+			for i, n in ipairs(GAMEPAD_KEYS) do t[i] = Enum.KeyCode[n] end
+			return t
+		end,
+		GamepadSupports = function(_, gp, kc) return gamepadEnum(gp) and INPUT.pad ~= nil and IS_GAMEPAD_KEY[kc.Name] == true end,
 		GetFocusedTextBox = function() return nil end, GetStringForKeyCode = function(_, k) return k.Name end,
 		GetImageForKeyCode = function() return "" end, GetDeviceRotation = function() return cfT(0, 0, 0) end,
 	},
@@ -2424,25 +2489,33 @@ function M.runMain(source, chunkName)
 end
 
 -- time
-function M.advance(dt, fps)
-	fps = fps or 60
-	local target = now + dt
+-- Frames run on a fixed 60 fps grid of simulated time (frame k at k/60 s), whatever the dt asked for:
+-- every RenderStepped/Heartbeat gets exactly 1/60, so per-frame integration (driving) is exact and
+-- advance(1.5) = 90 frames. Tasks due between frames (task.wait/delay) run before the frame that follows them.
+M.FPS = 60
+local frameNo = 0
+M.frameHooks = {} -- functions(now) called after every frame (the driver's `trace` uses this)
+function M.advance(dt)
+	local target = now + math.max(tonumber(dt) or 0, 0)
 	local rs = game:GetService("RunService")
-	while now < target - 1e-9 do
-		local prev = now
-		local nt = math.min(now + 1 / fps, target)
-		runQueue(nt)
-		local step = nt - prev
+	local step = 1 / M.FPS
+	while (frameNo + 1) * step <= target + 1e-9 do
+		frameNo += 1
+		runQueue(frameNo * step)
 		table.sort(renderBound, function(a, b) return a.prio < b.prio end)
 		for _, b in ipairs(table.clone(renderBound)) do task.spawn(b.fn, step) end
 		fireIf(rs, "PreRender", step)
 		fireIf(rs, "RenderStepped", step)
+		fireIf(rs, "PreAnimation", step)
 		fireIf(rs, "Stepped", now, step)
-		fireIf(rs, "Heartbeat", step)
 		fireIf(rs, "PreSimulation", step)
 		fireIf(rs, "PostSimulation", step)
+		fireIf(rs, "Heartbeat", step)
+		for _, h in ipairs(M.frameHooks) do h(now) end
 	end
+	runQueue(target)
 end
+M.frames = function() return frameNo end
 
 ------------------------------------------------------------------
 -- INPUT HELPERS (used by the driver)
